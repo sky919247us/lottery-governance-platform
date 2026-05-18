@@ -1,41 +1,49 @@
 /**
  * CoreClient — 給其他模組（Attendance / 訓練 / 考核 …）唯讀讀取 Core 資料的薄 helper。
  *
- * 使用方式：把這份檔案複製到其他模組的 GAS project，呼叫 CoreClient.getEmployee('E001') 等。
+ * 使用：把這份檔案複製到其他模組的 GAS project，呼叫 CoreClient.getEmployee('E001') 等。
+ * Core Sheet ID 寫死在此（部署到他模組時要記得改）。
  *
- * Core Sheet 的 ID 寫死在此（部署到他模組時要記得改成正確 ID）。
+ * 回傳的物件 key 是中文欄位名（與 Sheet header 一致），請用 COL 常數存取以避免 typo。
  */
 
 const CORE_SHEET_ID = '1h6u7RPinABlNdElGDXV_yqNDwpdE9IwAv7Bxu_jLAuM';
 
 const CoreClient = {
   getEmployee: function (employeeId) {
-    return findRow_('Employees', 'employee_id', employeeId);
+    return findRow_(SHEET_NAMES.EMPLOYEES, COL.EMPLOYEES.ID, employeeId);
   },
 
   getEmployeeByLineId: function (lineUserId) {
-    return findRow_('Employees', 'line_user_id', lineUserId);
+    return findRow_(SHEET_NAMES.EMPLOYEES, COL.EMPLOYEES.LINE_USER_ID, lineUserId);
   },
 
   getStores: function () {
-    return getAllRows_('Stores').filter(function (s) { return s.status === 'active'; });
+    return getAllRows_(SHEET_NAMES.STORES).filter(function (s) {
+      return s[COL.STORES.STATUS] === 'active';
+    });
   },
 
   getStore: function (storeId) {
-    return findRow_('Stores', 'store_id', storeId);
+    return findRow_(SHEET_NAMES.STORES, COL.STORES.ID, storeId);
   },
 
   checkPermission: function (employeeId, permissionKey) {
     const emp = this.getEmployee(employeeId);
     if (!emp) return false;
-    const row = findRowByTwo_('Permissions', 'role', emp.role, 'permission_key', permissionKey);
+    const row = findRowByTwo_(
+      SHEET_NAMES.PERMISSIONS,
+      COL.PERMISSIONS.ROLE, emp[COL.EMPLOYEES.ROLE],
+      COL.PERMISSIONS.PERMISSION_KEY, permissionKey
+    );
     if (!row) return false;
-    return row.granted === true || String(row.granted).toUpperCase() === 'TRUE';
+    return row[COL.PERMISSIONS.GRANTED] === true ||
+      String(row[COL.PERMISSIONS.GRANTED]).toUpperCase() === 'TRUE';
   },
 
   getSetting: function (key) {
-    const row = findRow_('Settings', 'key', key);
-    return row ? row.value : null;
+    const row = findRow_(SHEET_NAMES.SETTINGS, COL.SETTINGS.KEY, key);
+    return row ? row[COL.SETTINGS.VALUE] : null;
   }
 };
 

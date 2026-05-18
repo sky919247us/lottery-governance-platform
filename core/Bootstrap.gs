@@ -1,45 +1,67 @@
 /**
- * Bootstrap — 一鍵建立 Core Sheet 所有分頁 + 預設資料
+ * Bootstrap — 建立 Core Sheet 所有分頁 + 預設資料
  *
- * 從 Apps Script 編輯器手動執行一次即可。重複執行安全（已存在的分頁不會被覆蓋）。
+ * 從 Apps Script 編輯器手動執行一次。重複執行安全（已存在分頁不會覆寫）。
  */
 function Bootstrap() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
   ensureSheet_(ss, SHEET_NAMES.EMPLOYEES, [
-    'employee_id', 'name', 'line_user_id', 'home_store', 'role',
-    'employment_type', 'monthly_salary', 'hourly_rate', 'salary_effective_date',
-    'hire_date', 'probation_end_date', 'probation_status',
-    'status', 'resign_date', 'emergency_contact', 'emergency_phone',
-    'created_at', 'updated_at'
+    COL.EMPLOYEES.ID, COL.EMPLOYEES.NAME, COL.EMPLOYEES.LINE_USER_ID,
+    COL.EMPLOYEES.HOME_STORE, COL.EMPLOYEES.ROLE,
+    COL.EMPLOYEES.EMPLOYMENT_TYPE, COL.EMPLOYEES.MONTHLY_SALARY, COL.EMPLOYEES.HOURLY_RATE,
+    COL.EMPLOYEES.SALARY_EFFECTIVE_DATE,
+    COL.EMPLOYEES.HIRE_DATE, COL.EMPLOYEES.PROBATION_END_DATE, COL.EMPLOYEES.PROBATION_STATUS,
+    COL.EMPLOYEES.STATUS, COL.EMPLOYEES.RESIGN_DATE,
+    COL.EMPLOYEES.EMERGENCY_CONTACT, COL.EMPLOYEES.EMERGENCY_PHONE,
+    COL.EMPLOYEES.CREATED_AT, COL.EMPLOYEES.UPDATED_AT
   ]);
 
   ensureSheet_(ss, SHEET_NAMES.EMPLOYEES_SENSITIVE, [
-    'employee_id', 'id_number', 'bank_account', 'updated_by', 'updated_at'
+    COL.EMPLOYEES_SENSITIVE.ID, COL.EMPLOYEES_SENSITIVE.ID_NUMBER,
+    COL.EMPLOYEES_SENSITIVE.BANK_ACCOUNT,
+    COL.EMPLOYEES_SENSITIVE.UPDATED_BY, COL.EMPLOYEES_SENSITIVE.UPDATED_AT
   ]);
 
   ensureSheet_(ss, SHEET_NAMES.STORES, [
-    'store_id', 'name', 'address', 'lat', 'lng', 'radius_m',
-    'default_morning_start', 'default_morning_end',
-    'default_evening_start', 'default_evening_end',
-    'status'
+    COL.STORES.ID, COL.STORES.NAME, COL.STORES.ADDRESS,
+    COL.STORES.LAT, COL.STORES.LNG, COL.STORES.RADIUS_M,
+    COL.STORES.MORNING_START, COL.STORES.MORNING_END,
+    COL.STORES.EVENING_START, COL.STORES.EVENING_END,
+    COL.STORES.STATUS
   ]);
 
-  ensureSheet_(ss, SHEET_NAMES.ROLES, ['role', 'description']);
+  ensureSheet_(ss, SHEET_NAMES.ROLES, [COL.ROLES.ROLE, COL.ROLES.DESCRIPTION]);
 
-  ensureSheet_(ss, SHEET_NAMES.PERMISSIONS, ['role', 'permission_key', 'granted']);
+  ensureSheet_(ss, SHEET_NAMES.PERMISSIONS, [
+    COL.PERMISSIONS.ROLE, COL.PERMISSIONS.PERMISSION_KEY, COL.PERMISSIONS.GRANTED
+  ]);
 
   ensureSheet_(ss, SHEET_NAMES.SALARY_HISTORY, [
-    'employee_id', 'field', 'old_value', 'new_value', 'effective_date',
-    'modified_by', 'modified_at', 'reason'
+    COL.SALARY_HISTORY.EMPLOYEE_ID, COL.SALARY_HISTORY.FIELD,
+    COL.SALARY_HISTORY.OLD_VALUE, COL.SALARY_HISTORY.NEW_VALUE,
+    COL.SALARY_HISTORY.EFFECTIVE_DATE, COL.SALARY_HISTORY.MODIFIED_BY,
+    COL.SALARY_HISTORY.MODIFIED_AT, COL.SALARY_HISTORY.REASON
   ]);
 
-  ensureSheet_(ss, SHEET_NAMES.SETTINGS, ['key', 'value', 'description']);
+  ensureSheet_(ss, SHEET_NAMES.SETTINGS, [
+    COL.SETTINGS.KEY, COL.SETTINGS.VALUE, COL.SETTINGS.DESCRIPTION
+  ]);
 
-  ensureSheet_(ss, SHEET_NAMES.BACKUP_LOG, ['backup_at', 'file_id', 'status', 'note']);
+  ensureSheet_(ss, SHEET_NAMES.BACKUP_LOG, [
+    COL.BACKUP_LOG.BACKUP_AT, COL.BACKUP_LOG.FILE_ID,
+    COL.BACKUP_LOG.STATUS, COL.BACKUP_LOG.NOTE
+  ]);
 
   ensureSheet_(ss, SHEET_NAMES.BIND_TOKENS, [
-    'token', 'employee_id', 'created_at', 'expires_at', 'used_at', 'used_by_line_id'
+    COL.BIND_TOKENS.TOKEN, COL.BIND_TOKENS.EMPLOYEE_ID,
+    COL.BIND_TOKENS.CREATED_AT, COL.BIND_TOKENS.EXPIRES_AT,
+    COL.BIND_TOKENS.USED_AT, COL.BIND_TOKENS.USED_BY_LINE_ID
+  ]);
+
+  ensureSheet_(ss, SHEET_NAMES.HOLIDAYS, [
+    COL.HOLIDAYS.DATE, COL.HOLIDAYS.YEAR, COL.HOLIDAYS.NAME,
+    COL.HOLIDAYS.IS_RED, COL.HOLIDAYS.SOURCE
   ]);
 
   seedStores_(ss);
@@ -50,10 +72,8 @@ function Bootstrap() {
   protectSensitive_(ss);
 
   SpreadsheetApp.getUi().alert(
-    'Bootstrap 完成！\n\n' +
-    '請檢查左下分頁列：應有 Employees / EmployeesSensitive / Stores / Roles / ' +
-    'Permissions / SalaryHistory / Settings / Backup_Log 共 8 張表，且各表已有預設資料。\n\n' +
-    '下一步：到 Stores 填入三間店的 GPS 座標（lat/lng），到 Settings 填入 LINE channel 資料。'
+    'Bootstrap 完成！\n\n請檢查左下分頁列，所有 10 張表已建立。\n' +
+    '欄位中英對照可參考「欄位對照表」分頁（執行 BuildGlossary 產生）。'
   );
 }
 
@@ -72,12 +92,6 @@ function ensureSheet_(ss, name, headers) {
   }
 }
 
-function seedStores_(ss) {
-  const sheet = ss.getSheetByName(SHEET_NAMES.STORES);
-  if (sheet.getLastRow() > 1) return;
-  sheet.getRange(2, 1, STORES_SEED_.length, STORES_SEED_[0].length).setValues(STORES_SEED_);
-}
-
 const STORES_SEED_ = [
   ['LUCKY', '好運彩券行', '台中市西屯區長安路二段159號',
     24.17397559, 120.6652575, 100, '06:45', '16:30', '16:15', '01:45', 'active'],
@@ -87,11 +101,15 @@ const STORES_SEED_ = [
     24.17619498, 120.6961428, 100, '06:45', '16:30', '16:15', '01:45', 'active']
 ];
 
+function seedStores_(ss) {
+  const sheet = ss.getSheetByName(SHEET_NAMES.STORES);
+  if (sheet.getLastRow() > 1) return;
+  sheet.getRange(2, 1, STORES_SEED_.length, STORES_SEED_[0].length).setValues(STORES_SEED_);
+}
+
 /**
- * 一次性遷移：用真實 store_id（BINGO/LUCKY/MONEY）和 GPS 座標覆蓋 Stores 表，
- * 並同步把 admin 員工 (E001) 的 home_store 從 S001 改成 LUCKY。
- *
- * 只在 Bootstrap 跑過、需要更新時手動執行一次即可。
+ * 一次性遷移：用真實 store_id + GPS 座標覆寫，並把 admin home_store 對齊 LUCKY。
+ * 已執行過可不再執行。
  */
 function MigrateStoresAndAdmin() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -107,21 +125,15 @@ function MigrateStoresAndAdmin() {
   const empSheet = ss.getSheetByName(SHEET_NAMES.EMPLOYEES);
   const empData = empSheet.getDataRange().getValues();
   const headers = empData[0];
-  const idCol = headers.indexOf('employee_id');
-  const homeCol = headers.indexOf('home_store');
+  const idCol = headers.indexOf(COL.EMPLOYEES.ID);
+  const homeCol = headers.indexOf(COL.EMPLOYEES.HOME_STORE);
   for (let i = 1; i < empData.length; i++) {
     if (empData[i][idCol] === 'E001' && empData[i][homeCol] === 'S001') {
       empSheet.getRange(i + 1, homeCol + 1).setValue('LUCKY');
     }
   }
 
-  SpreadsheetApp.getUi().alert(
-    'Stores 已更新：\n' +
-    '• LUCKY 好運彩券行\n' +
-    '• BINGO 賓果彩券行\n' +
-    '• MONEY 撿到錢投注站\n\n' +
-    'Admin (E001) home_store 已從 S001 改為 LUCKY。'
-  );
+  SpreadsheetApp.getUi().alert('Stores 已更新 + Admin home_store 已對齊 LUCKY。');
 }
 
 function seedRoles_(ss) {
@@ -165,11 +177,13 @@ function seedPermissions_(ss) {
 function seedSettings_(ss) {
   const sheet = ss.getSheetByName(SHEET_NAMES.SETTINGS);
   if (sheet.getLastRow() > 1) return;
-  sheet.getRange(2, 1, 7, 3).setValues([
+  sheet.getRange(2, 1, 9, 3).setValues([
     ['web_app_url', '',
       '【請填】Apps Script Web App production /exec URL（從「管理部署」對話框複製）'],
+    ['attendance_sheet_id', '', 'Attendance Sheet ID（執行 CreateAttendanceSheet 後自動填入）'],
     ['holidays_sync_enabled', 'true', '是否自動同步 taiwan-holidays（連 3 次失敗自動切 false）'],
     ['holidays_sync_failures', '0', '同步失敗計數'],
+    ['backup_folder_id', '', 'Google Drive 備份資料夾 ID（首次備份時自動建立並寫入）'],
     ['line_login_channel_id', '', '【請填】LINE Login channel ID'],
     ['line_login_channel_secret', '', '【請填】LINE Login channel secret'],
     ['line_messaging_access_token', '', '【請填】LINE Messaging API channel access token'],

@@ -32,8 +32,8 @@ function generateBindUrl_(employeeId) {
   const empSheet = ss.getSheetByName(SHEET_NAMES.EMPLOYEES);
   const empData = empSheet.getDataRange().getValues();
   const headers = empData[0];
-  const idCol = headers.indexOf('employee_id');
-  const lineCol = headers.indexOf('line_user_id');
+  const idCol = headers.indexOf(COL.EMPLOYEES.ID);
+  const lineCol = headers.indexOf(COL.EMPLOYEES.LINE_USER_ID);
 
   let foundIdx = -1;
   for (let i = 1; i < empData.length; i++) {

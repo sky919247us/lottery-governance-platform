@@ -109,11 +109,11 @@ function doLogin_(profile) {
   return pageHtml_(
     '登入成功',
     '<h2>登入成功 ✅</h2>' +
-    '<p>哈囉 <b>' + escapeHtml_(emp.name) + '</b>（' + emp.employee_id + '）</p>' +
+    '<p>哈囉 <b>' + escapeHtml_(emp[COL.EMPLOYEES.NAME]) + '</b>（' + emp[COL.EMPLOYEES.ID] + '）</p>' +
     '<ul>' +
-    '<li>角色：' + escapeHtml_(emp.role) + '</li>' +
-    '<li>主店：' + escapeHtml_(emp.home_store) + '</li>' +
-    '<li>狀態：' + escapeHtml_(emp.status) + '</li>' +
+    '<li>角色：' + escapeHtml_(emp[COL.EMPLOYEES.ROLE]) + '</li>' +
+    '<li>主店：' + escapeHtml_(emp[COL.EMPLOYEES.HOME_STORE]) + '</li>' +
+    '<li>狀態：' + escapeHtml_(emp[COL.EMPLOYEES.STATUS]) + '</li>' +
     '</ul>' +
     '<p style="color:#888;font-size:12px;margin-top:32px">本頁為 LINE 綁定驗證測試。打卡 / 排班介面將於 P2 上線。</p>'
   );
@@ -129,9 +129,9 @@ function doBindWithToken_(bindToken, profile) {
   const empSheet = ss.getSheetByName(SHEET_NAMES.EMPLOYEES);
   const data = empSheet.getDataRange().getValues();
   const headers = data[0];
-  const idCol = headers.indexOf('employee_id');
-  const lineCol = headers.indexOf('line_user_id');
-  const updatedCol = headers.indexOf('updated_at');
+  const idCol = headers.indexOf(COL.EMPLOYEES.ID);
+  const lineCol = headers.indexOf(COL.EMPLOYEES.LINE_USER_ID);
+  const updatedCol = headers.indexOf(COL.EMPLOYEES.UPDATED_AT);
 
   for (let i = 1; i < data.length; i++) {
     if (data[i][lineCol] === profile.userId && data[i][idCol] !== info.employee_id) {
@@ -200,7 +200,7 @@ function findEmployeeByLineId_(lineUserId) {
   const data = sheet.getDataRange().getValues();
   if (data.length < 2) return null;
   const headers = data[0];
-  const lineCol = headers.indexOf('line_user_id');
+  const lineCol = headers.indexOf(COL.EMPLOYEES.LINE_USER_ID);
   for (let i = 1; i < data.length; i++) {
     if (data[i][lineCol] === lineUserId) {
       const obj = {};
@@ -218,15 +218,6 @@ function getLineLoginCfg_() {
     throw new Error('LINE Login channel ID / secret 未設定，請至 Settings 分頁填入');
   }
   return { channelId: String(id), channelSecret: String(secret) };
-}
-
-function getSetting_(key) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.SETTINGS);
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === key) return data[i][1];
-  }
-  return null;
 }
 
 function getWebAppUrl_() {
