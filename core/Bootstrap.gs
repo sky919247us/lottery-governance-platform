@@ -38,6 +38,10 @@ function Bootstrap() {
 
   ensureSheet_(ss, SHEET_NAMES.BACKUP_LOG, ['backup_at', 'file_id', 'status', 'note']);
 
+  ensureSheet_(ss, SHEET_NAMES.BIND_TOKENS, [
+    'token', 'employee_id', 'created_at', 'expires_at', 'used_at', 'used_by_line_id'
+  ]);
+
   seedStores_(ss);
   seedRoles_(ss);
   seedPermissions_(ss);
@@ -161,7 +165,9 @@ function seedPermissions_(ss) {
 function seedSettings_(ss) {
   const sheet = ss.getSheetByName(SHEET_NAMES.SETTINGS);
   if (sheet.getLastRow() > 1) return;
-  sheet.getRange(2, 1, 6, 3).setValues([
+  sheet.getRange(2, 1, 7, 3).setValues([
+    ['web_app_url', '',
+      '【請填】Apps Script Web App production /exec URL（從「管理部署」對話框複製）'],
     ['holidays_sync_enabled', 'true', '是否自動同步 taiwan-holidays（連 3 次失敗自動切 false）'],
     ['holidays_sync_failures', '0', '同步失敗計數'],
     ['line_login_channel_id', '', '【請填】LINE Login channel ID'],

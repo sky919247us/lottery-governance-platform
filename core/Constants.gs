@@ -8,5 +8,6 @@ const SHEET_NAMES = {
   PERMISSIONS: 'Permissions',
   SALARY_HISTORY: 'SalaryHistory',
   SETTINGS: 'Settings',
-  BACKUP_LOG: 'Backup_Log'
+  BACKUP_LOG: 'Backup_Log',
+  BIND_TOKENS: 'BindTokens'
 };
