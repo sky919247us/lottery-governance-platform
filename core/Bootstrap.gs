@@ -71,15 +71,53 @@ function ensureSheet_(ss, name, headers) {
 function seedStores_(ss) {
   const sheet = ss.getSheetByName(SHEET_NAMES.STORES);
   if (sheet.getLastRow() > 1) return;
-  const data = [
-    ['S001', '好運彩券行', '台中市西屯區長安路二段159號',
-      0, 0, 100, '06:45', '16:30', '16:15', '01:45', 'active'],
-    ['S002', '賓果彩券行', '台中市北屯區昌平路二段5-11號',
-      0, 0, 100, '06:45', '16:30', '16:15', '01:45', 'active'],
-    ['S003', '撿到錢投注站', '台中市北屯區崇德二路一段146-2號',
-      0, 0, 100, '06:45', '16:30', '16:15', '01:45', 'active']
-  ];
-  sheet.getRange(2, 1, data.length, data[0].length).setValues(data);
+  sheet.getRange(2, 1, STORES_SEED_.length, STORES_SEED_[0].length).setValues(STORES_SEED_);
+}
+
+const STORES_SEED_ = [
+  ['LUCKY', '好運彩券行', '台中市西屯區長安路二段159號',
+    24.17397559, 120.6652575, 100, '06:45', '16:30', '16:15', '01:45', 'active'],
+  ['BINGO', '賓果彩券行', '台中市北屯區昌平路二段5-11號',
+    24.17941266, 120.6902831, 100, '06:45', '16:30', '16:15', '01:45', 'active'],
+  ['MONEY', '撿到錢投注站', '台中市北屯區崇德二路一段146-2號',
+    24.17619498, 120.6961428, 100, '06:45', '16:30', '16:15', '01:45', 'active']
+];
+
+/**
+ * 一次性遷移：用真實 store_id（BINGO/LUCKY/MONEY）和 GPS 座標覆蓋 Stores 表，
+ * 並同步把 admin 員工 (E001) 的 home_store 從 S001 改成 LUCKY。
+ *
+ * 只在 Bootstrap 跑過、需要更新時手動執行一次即可。
+ */
+function MigrateStoresAndAdmin() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  const storesSheet = ss.getSheetByName(SHEET_NAMES.STORES);
+  if (storesSheet.getLastRow() > 1) {
+    storesSheet.getRange(2, 1, storesSheet.getLastRow() - 1, storesSheet.getLastColumn())
+      .clearContent();
+  }
+  storesSheet.getRange(2, 1, STORES_SEED_.length, STORES_SEED_[0].length)
+    .setValues(STORES_SEED_);
+
+  const empSheet = ss.getSheetByName(SHEET_NAMES.EMPLOYEES);
+  const empData = empSheet.getDataRange().getValues();
+  const headers = empData[0];
+  const idCol = headers.indexOf('employee_id');
+  const homeCol = headers.indexOf('home_store');
+  for (let i = 1; i < empData.length; i++) {
+    if (empData[i][idCol] === 'E001' && empData[i][homeCol] === 'S001') {
+      empSheet.getRange(i + 1, homeCol + 1).setValue('LUCKY');
+    }
+  }
+
+  SpreadsheetApp.getUi().alert(
+    'Stores 已更新：\n' +
+    '• LUCKY 好運彩券行\n' +
+    '• BINGO 賓果彩券行\n' +
+    '• MONEY 撿到錢投注站\n\n' +
+    'Admin (E001) home_store 已從 S001 改為 LUCKY。'
+  );
 }
 
 function seedRoles_(ss) {
@@ -139,7 +177,7 @@ function seedAdminEmployee_(ss) {
   if (sheet.getLastRow() > 1) return;
   const today = Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd');
   sheet.getRange(2, 1, 1, 18).setValues([[
-    'E001', '系統管理員', '', 'S001', 'admin',
+    'E001', '系統管理員', '', 'LUCKY', 'admin',
     'monthly', 29500, 200, today,
     today, '', '通過',
     'active', '', '', '',
