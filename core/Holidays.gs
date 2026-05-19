@@ -66,17 +66,31 @@ function writeHolidaysToSheet_(year, data) {
 
   const allData = sheet.getDataRange().getValues();
   const headers = allData[0];
+  const dateColIdx = headers.indexOf(COL.HOLIDAYS.DATE);
   const yearCol = headers.indexOf(COL.HOLIDAYS.YEAR);
+  const noteCol = headers.indexOf(COL.HOLIDAYS.NOTE);
   const sourceCol = headers.indexOf(COL.HOLIDAYS.SOURCE);
 
-  // 從底向上刪除這年的 auto 列（保留 manual 覆寫）
+  // 同步前先保存當年所有 備註 內容（key: date, value: note）
+  const preservedNotes = {};
+  if (noteCol >= 0) {
+    for (let i = 1; i < allData.length; i++) {
+      if (String(allData[i][yearCol]) !== String(year)) continue;
+      const dv = allData[i][dateColIdx];
+      const ds = (dv instanceof Date)
+        ? Utilities.formatDate(dv, TIMEZONE, 'yyyy-MM-dd')
+        : String(dv);
+      if (allData[i][noteCol]) preservedNotes[ds] = allData[i][noteCol];
+    }
+  }
+
+  // 從底向上刪除這年的 auto 列
   for (let i = allData.length - 1; i >= 1; i--) {
     if (String(allData[i][yearCol]) === String(year) && allData[i][sourceCol] === 'auto') {
       sheet.deleteRow(i + 1);
     }
   }
 
-  // 取出該年所有 manual 覆寫的日期，避免重複插入
   const remaining = sheet.getDataRange().getValues();
   const manualDates = {};
   for (let i = 1; i < remaining.length; i++) {
@@ -85,17 +99,158 @@ function writeHolidaysToSheet_(year, data) {
     }
   }
 
-  // 組新列：[date, year, name, is_red, source]
+  // 組新列：[date, year, name, is_red, lunar, note, source]
   const rows = [];
   data.forEach(function (d) {
     const dateStr = d.date.substring(0, 4) + '-' + d.date.substring(4, 6) + '-' + d.date.substring(6, 8);
-    if (manualDates[dateStr]) return; // 該日已有 manual 覆寫，跳過
-    rows.push([dateStr, parseInt(d.date.substring(0, 4), 10), d.description || '', d.isHoliday === true, 'auto']);
+    if (manualDates[dateStr]) return;
+    const lunar = (d.lunar && d.lunar.date) ? d.lunar.date : '';
+    rows.push([
+      dateStr,
+      parseInt(d.date.substring(0, 4), 10),
+      d.description || '',
+      d.isHoliday === true,
+      lunar,
+      preservedNotes[dateStr] || '',
+      'auto'
+    ]);
   });
 
   if (rows.length > 0) {
-    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 5).setValues(rows);
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 7).setValues(rows);
   }
+}
+
+/**
+ * 用 V8 Intl 把國曆字串 (yyyy-MM-dd) 轉成台灣農曆顯示，例如 "四月初二"。
+ * 若 Apps Script V8 沒帶 chinese calendar locale，會 throw / 回空字串。
+ */
+function gregorianToLunarTW_(dateStr) {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(dateStr + 'T12:00:00+08:00');
+    const fmt = new Intl.DateTimeFormat('zh-TW-u-ca-chinese', {
+      month: 'long', day: 'numeric'
+    });
+    return fmt.format(d);
+  } catch (e) {
+    return '';
+  }
+}
+
+/** 測試 Intl 農曆轉換是否能用 — 5 筆已知對照，跑完看結果是否正確 */
+function TestLunar() {
+  const cases = [
+    ['2026-01-01', '預期：(去年)冬月 / 十一月 十三 之類'],
+    ['2026-02-17', '預期：正月初一（2026 春節）'],
+    ['2026-02-18', '預期：正月初二'],
+    ['2026-05-18', '預期：四月初二（拜土地公）'],
+    ['2026-05-19', '預期：四月初三'],
+    ['2026-08-28', '預期：七月十六（拜土地公例外）']
+  ];
+  let lines = ['Intl.DateTimeFormat 農曆轉換測試\n'];
+  cases.forEach(function (c) {
+    const lunar = gregorianToLunarTW_(c[0]);
+    lines.push(c[0] + ' → ' + (lunar || '(空字串 / 不支援)') + '\n' + c[1]);
+  });
+  SpreadsheetApp.getUi().alert(lines.join('\n\n'));
+}
+
+/**
+ * 重新計算 Holidays 表中某年所有列的「農曆」欄（用 Intl，不打外部 API）。
+ * 只動 source=auto 的列；manual 列不動。
+ */
+function ResyncLunar2026() { resyncLunarForYear_(2026); }
+function ResyncLunar2027() { resyncLunarForYear_(2027); }
+
+function resyncLunarForYear_(year) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAMES.HOLIDAYS);
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert('Holidays 分頁不存在');
+    return;
+  }
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const dateCol = headers.indexOf(COL.HOLIDAYS.DATE);
+  const yearCol = headers.indexOf(COL.HOLIDAYS.YEAR);
+  const lunarCol = headers.indexOf(COL.HOLIDAYS.LUNAR);
+  const sourceCol = headers.indexOf(COL.HOLIDAYS.SOURCE);
+  if (lunarCol < 0) {
+    SpreadsheetApp.getUi().alert('Holidays 缺少 農曆 欄位');
+    return;
+  }
+
+  let updated = 0;
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][yearCol]) !== String(year)) continue;
+    if (data[i][sourceCol] !== 'auto') continue;
+    const dv = data[i][dateCol];
+    const ds = (dv instanceof Date)
+      ? Utilities.formatDate(dv, TIMEZONE, 'yyyy-MM-dd')
+      : String(dv);
+    const newLunar = gregorianToLunarTW_(ds);
+    if (newLunar && newLunar !== String(data[i][lunarCol] || '')) {
+      sheet.getRange(i + 1, lunarCol + 1).setValue(newLunar);
+      updated++;
+    }
+  }
+  SpreadsheetApp.getUi().alert(
+    year + ' 年農曆 resync 完成 ✓\n\n' +
+    '更新 ' + updated + ' 列。\n\n' +
+    '檢查 Holidays 分頁是否正確（如 2026-02-17 應為「正月初一」）。'
+  );
+}
+
+/** 為已存在的 Holidays 分頁加 備註 欄位（在 農曆 和 資料來源 之間） */
+function MigrateAddNoteColumn() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAMES.HOLIDAYS);
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert('Holidays 分頁不存在');
+    return;
+  }
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  if (headers.indexOf(COL.HOLIDAYS.NOTE) >= 0) {
+    SpreadsheetApp.getUi().alert('備註 欄位已存在，無需 migration。');
+    return;
+  }
+  const sourceColIdx = headers.indexOf(COL.HOLIDAYS.SOURCE);
+  if (sourceColIdx < 0) {
+    SpreadsheetApp.getUi().alert('找不到 資料來源 欄位');
+    return;
+  }
+  sheet.insertColumnBefore(sourceColIdx + 1);
+  sheet.getRange(1, sourceColIdx + 1).setValue(COL.HOLIDAYS.NOTE)
+    .setFontWeight('bold').setBackground('#e8f0fe');
+  SpreadsheetApp.getUi().alert('✓ 已新增 備註 欄位');
+}
+
+/** 為已存在的 Holidays 分頁加 農曆 欄位（在 紅字 和 資料來源 之間） */
+function MigrateAddLunarColumn() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAMES.HOLIDAYS);
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert('Holidays 分頁不存在');
+    return;
+  }
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  if (headers.indexOf(COL.HOLIDAYS.LUNAR) >= 0) {
+    SpreadsheetApp.getUi().alert('農曆 欄位已存在，無需 migration。');
+    return;
+  }
+  const sourceColIdx = headers.indexOf(COL.HOLIDAYS.SOURCE);
+  if (sourceColIdx < 0) {
+    SpreadsheetApp.getUi().alert('找不到 資料來源 欄位，請先確認 Holidays schema 正確');
+    return;
+  }
+  // 在 sourceColIdx 前插入新欄
+  sheet.insertColumnBefore(sourceColIdx + 1);
+  sheet.getRange(1, sourceColIdx + 1).setValue(COL.HOLIDAYS.LUNAR)
+    .setFontWeight('bold').setBackground('#e8f0fe');
+  SpreadsheetApp.getUi().alert(
+    '✓ 已新增 農曆 欄位\n\n請接著執行 SyncHolidays2026 重新拉取資料填入農曆資訊。'
+  );
 }
 
 function handleHolidaysSyncFailure_(year, err) {

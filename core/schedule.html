@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>三店月曆總覽</title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box}
+    html,body{margin:0;padding:0}
+    body{
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+      background:#fafafa;color:#0f172a;font-size:13px;line-height:1.4;
+    }
+    .topbar{
+      background:#fff;border-bottom:1px solid #e5e7eb;
+      padding:14px 24px;display:flex;align-items:center;gap:16px;
+    }
+    .topbar h1{
+      font-size:14px;font-weight:600;margin:0;
+      font-family:ui-monospace,SFMono-Regular,monospace;
+      letter-spacing:.15em;text-transform:uppercase;color:#64748b;
+    }
+    .nav{display:flex;align-items:center;gap:8px;margin-left:auto}
+    .nav button{
+      background:#fff;border:1px solid #e5e7eb;border-radius:4px;
+      padding:6px 12px;font-size:13px;cursor:pointer;color:#0f172a;
+    }
+    .nav button:hover{background:#f1f5f9}
+    .nav .month-label{
+      font-weight:600;font-size:15px;min-width:120px;text-align:center;
+    }
+    .container{padding:16px 24px;overflow-x:auto}
+    .grid{
+      border-collapse:collapse;background:#fff;
+      border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;
+      font-size:12px;
+    }
+    .grid th,.grid td{
+      border:1px solid #f1f5f9;padding:0;height:32px;text-align:center;
+      vertical-align:middle;
+    }
+    .grid thead th{
+      background:#f8fafc;font-weight:600;color:#475569;padding:4px 0;
+    }
+    .grid thead .day-num{font-size:13px}
+    .grid thead .day-week{font-size:10px;color:#94a3b8;display:block}
+    .grid thead .day-red{background:#fef2f2;color:#991b1b}
+    .grid thead .day-red .day-week{color:#b91c1c}
+    .grid thead .day-today{background:#0f172a !important;color:#fff !important}
+    .grid thead .day-today .day-week{color:#cbd5e1}
+
+    .store-col{
+      background:#f1f5f9;font-weight:700;font-size:14px;
+      width:36px;min-width:36px;max-width:36px;
+      writing-mode:vertical-rl;text-orientation:upright;
+      letter-spacing:.15em;color:#0f172a;
+      border-right:1px solid #cbd5e1;
+    }
+    .shift-col{
+      background:#f8fafc;color:#475569;font-weight:500;font-size:12px;
+      width:60px;min-width:60px;max-width:60px;
+      border-right:1px solid #e5e7eb;
+    }
+    /* 店與店之間粗黑線分隔 */
+    .grid tbody tr.store-start td{border-top:2px solid #94a3b8}
+
+    .col-day-num{width:36px;min-width:36px;max-width:36px}
+    td.cell-today{box-shadow:inset 0 0 0 2px #0f172a}
+    .emp-tag{
+      display:inline-block;padding:3px 6px;border-radius:3px;
+      font-size:11px;font-weight:600;color:#1e293b;
+      max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+      border:1.5px solid transparent;
+    }
+    /* 草稿：虛線邊框 + 半透明背景 */
+    .emp-tag.draft{
+      opacity:.6;
+      border-style:dashed;
+      border-color:rgba(15,23,42,.55);
+    }
+    .note-row td{
+      background:#fefce8;height:auto;padding:6px 4px;font-size:11px;
+      color:#854d0e;line-height:1.3;
+    }
+    .note-row td.row-label{
+      background:#fef9c3;font-weight:600;color:#713f12;
+      padding:0 12px;text-align:left;
+    }
+    .note-cell{
+      cursor:text;min-height:24px;outline:none;
+      padding:4px 2px;border-radius:2px;
+    }
+    .note-cell:hover{background:#fef3c7}
+    .note-cell:focus{
+      background:#fffbeb;
+      box-shadow:inset 0 0 0 2px #f59e0b;
+    }
+    .note-cell .red-name{
+      display:block;color:#991b1b;font-weight:600;margin-bottom:2px;
+    }
+
+    .legend{
+      margin-top:24px;padding:16px;background:#fff;
+      border:1px solid #e5e7eb;border-radius:6px;
+    }
+    .legend h2{
+      font-size:12px;font-weight:600;color:#64748b;
+      text-transform:uppercase;letter-spacing:.1em;margin:0 0 12px;
+      font-family:ui-monospace,SFMono-Regular,monospace;
+    }
+    .legend-grid{display:flex;flex-wrap:wrap;gap:8px}
+    .legend-item{
+      display:inline-flex;align-items:center;gap:6px;
+      padding:4px 10px;border-radius:3px;font-size:12px;
+    }
+    .save-toast{
+      position:fixed;bottom:20px;right:20px;
+      background:#0f172a;color:#fff;padding:10px 16px;border-radius:6px;
+      font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;
+      z-index:100;
+    }
+    .save-toast.show{opacity:1}
+    .save-toast.err{background:#dc2626}
+
+    /* 排班 cell click */
+    td.sched-cell{cursor:pointer}
+    td.sched-cell:hover{background:#f1f5f9 !important}
+    td.sched-cell.has-data{cursor:pointer}
+    td.sched-cell.has-data:hover{box-shadow:inset 0 0 0 2px #ef4444}
+
+    /* Modal */
+    .modal-backdrop{
+      display:none;position:fixed;inset:0;background:rgba(15,23,42,.5);
+      z-index:200;align-items:center;justify-content:center;
+    }
+    .modal-backdrop.show{display:flex}
+    .modal{
+      background:#fff;border-radius:8px;padding:24px;width:380px;max-width:90vw;
+      box-shadow:0 10px 25px rgba(0,0,0,.15);
+    }
+    .modal h3{
+      margin:0 0 4px;font-size:16px;font-weight:600;
+    }
+    .modal .modal-sub{
+      color:#64748b;font-size:12px;margin-bottom:16px;
+      font-family:ui-monospace,SFMono-Regular,monospace;
+    }
+    .modal .form-row{
+      display:flex;align-items:center;margin-bottom:12px;gap:12px;
+    }
+    .modal .form-row label{
+      width:64px;font-size:12px;color:#64748b;font-weight:500;flex-shrink:0;
+    }
+    .modal .form-row .val{
+      font-weight:600;color:#0f172a;
+    }
+    .modal select,.modal input[type=text]{
+      flex:1;padding:8px 10px;border:1px solid #e5e7eb;border-radius:4px;
+      font-size:13px;
+    }
+    .modal .actions{
+      display:flex;gap:8px;justify-content:flex-end;margin-top:20px;
+    }
+    .modal button{
+      padding:8px 16px;border:1px solid #e5e7eb;border-radius:4px;
+      background:#fff;font-size:13px;cursor:pointer;color:#0f172a;
+    }
+    .modal button:hover{background:#f1f5f9}
+    .modal button.primary{
+      background:#06c755;color:#fff;border-color:#06c755;
+    }
+    .modal button.primary:hover{background:#05a847}
+    .modal button.danger{
+      background:#dc2626;color:#fff;border-color:#dc2626;
+    }
+    .modal button.danger:hover{background:#b91c1c}
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>排班 · 三店月曆總覽</h1>
+  <div class="nav">
+    <button onclick="navMonth(-1)">‹ 上個月</button>
+    <span class="month-label" id="monthLabel"></span>
+    <button onclick="navMonth(1)">下個月 ›</button>
+    <button onclick="navToday()">今天</button>
+    <button onclick="openBulkModal()" style="background:#0f172a;color:#fff;border-color:#0f172a">📋 載入預設</button>
+  </div>
+</div>
+
+<div class="container">
+  <table class="grid" id="grid"></table>
+
+  <div class="legend">
+    <h2>EMPLOYEES · 員工色卡</h2>
+    <div class="legend-grid" id="legend"></div>
+  </div>
+</div>
+
+<div class="save-toast" id="toast"></div>
+
+<!-- 排班 modal -->
+<div class="modal-backdrop" id="modal" onclick="onModalBackdropClick(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <h3 id="modalTitle">新增排班</h3>
+    <div class="modal-sub" id="modalSub"></div>
+    <div id="modalCreateForm">
+      <div class="form-row"><label>日期</label><span class="val" id="mDate"></span></div>
+      <div class="form-row"><label>門市</label><span class="val" id="mStore"></span></div>
+      <div class="form-row"><label>班別</label><span class="val" id="mShift"></span></div>
+      <div class="form-row">
+        <label>員工</label>
+        <select id="mEmployee"></select>
+      </div>
+      <div class="form-row">
+        <label>狀態</label>
+        <select id="mStatus">
+          <option value="草稿">草稿</option>
+          <option value="已確認">已確認</option>
+        </select>
+      </div>
+      <div class="actions">
+        <button onclick="closeModal()">取消</button>
+        <button class="primary" onclick="submitCreate()">儲存</button>
+      </div>
+    </div>
+    <div id="modalDeleteForm" style="display:none">
+      <div class="form-row"><label>員工</label><span class="val" id="dEmpName"></span></div>
+      <div class="form-row"><label>日期</label><span class="val" id="dDate"></span></div>
+      <div class="form-row"><label>班別</label><span class="val" id="dShift"></span></div>
+      <div class="actions">
+        <button onclick="closeModal()">取消</button>
+        <button class="danger" onclick="submitDelete()">刪除排班</button>
+      </div>
+    </div>
+    <div id="modalBulkForm" style="display:none">
+      <div class="form-row">
+        <label>範圍</label>
+        <select id="bulkStore">
+          <option value="">全部三店</option>
+          <option value="LUCKY">好運彩券行</option>
+          <option value="BINGO">賓果彩券行</option>
+          <option value="MONEY">撿到錢投注站</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>狀態</label>
+        <select id="bulkStatus">
+          <option value="草稿">草稿（虛線顯示）</option>
+          <option value="已確認">已確認（實心顯示）</option>
+        </select>
+      </div>
+      <p style="font-size:12px;color:#64748b;margin:8px 0">
+        已存在的排班不會被覆寫。<br>
+        預設員工於「預設排班」分頁設定（門市代號 / 班別代號 / 員工編號）。
+      </p>
+      <div class="actions">
+        <button onclick="closeModal()">取消</button>
+        <button class="primary" onclick="submitBulk()">載入當月</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const DATA = <?!= JSON.stringify(data) ?>;
+  const WEB_APP_URL = <?!= JSON.stringify(webAppUrl) ?>;
+
+  function escapeHtml(s){
+    return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function daysInMonth(y,m){return new Date(y,m,0).getDate();}
+  function weekChar(y,m,d){return ['日','一','二','三','四','五','六'][new Date(y,m-1,d).getDay()];}
+
+  function renderMonthLabel(){
+    document.getElementById('monthLabel').textContent = DATA.year + ' 年 ' + DATA.month + ' 月';
+  }
+
+  function renderGrid(){
+    const days = daysInMonth(DATA.year, DATA.month);
+    const monthStr = String(DATA.month).padStart(2,'0');
+    const holidayMap = {};
+    DATA.holidays.forEach(h => holidayMap[h.date] = h);
+    const empMap = {};
+    DATA.employees.forEach(e => empMap[e.id] = e);
+    const schedIdx = {};
+    DATA.schedules.forEach(s => {
+      const key = s.store_id + '|' + s.shift_code + '|' + s.date;
+      (schedIdx[key] = schedIdx[key] || []).push(s);
+    });
+    const nShifts = DATA.shiftTypes.length;
+
+    // ---- header ----
+    let html = '<thead><tr><th colspan="2" class="row-label">門市 / 班別</th>';
+    for (let d = 1; d <= days; d++){
+      const dateStr = DATA.year + '-' + monthStr + '-' + String(d).padStart(2,'0');
+      const hol = holidayMap[dateStr];
+      const isToday = (dateStr === DATA.today);
+      const classes = ['col-day-num'];
+      if (hol && hol.is_red) classes.push('day-red');
+      if (isToday) classes.push('day-today');
+      html += '<th class="' + classes.join(' ') + '" title="' + escapeHtml(hol ? hol.name : '') +
+        '"><span class="day-num">' + d + '</span><span class="day-week">' +
+        weekChar(DATA.year, DATA.month, d) + '</span></th>';
+    }
+    html += '</tr></thead><tbody>';
+
+    // ---- store × shift rows ----
+    DATA.stores.forEach((store, sIdx) => {
+      DATA.shiftTypes.forEach((shift, shIdx) => {
+        const trCls = (shIdx === 0) ? 'store-start' : '';
+        html += '<tr class="' + trCls + '">';
+        if (shIdx === 0){
+          html += '<td rowspan="' + nShifts + '" class="store-col">' + escapeHtml(store.name) + '</td>';
+        }
+        html += '<td class="shift-col">' + escapeHtml(shift.name) + '</td>';
+
+        for (let d = 1; d <= days; d++){
+          const dateStr = DATA.year + '-' + monthStr + '-' + String(d).padStart(2,'0');
+          const hol = holidayMap[dateStr];
+          const isToday = (dateStr === DATA.today);
+          const tdClasses = [];
+          if (isToday) tdClasses.push('cell-today');
+
+          const key = store.id + '|' + shift.code + '|' + dateStr;
+          const sched = schedIdx[key] || [];
+          let cellHtml = '';
+          let schedIdAttr = '';
+          let empNameAttr = '';
+          sched.forEach(s => {
+            const emp = empMap[s.employee_id];
+            const empName = emp ? emp.name : s.employee_id;
+            const color = emp ? emp.color : '#ddd';
+            const draftCls = (s.status === '草稿') ? ' draft' : '';
+            cellHtml += '<span class="emp-tag' + draftCls + '" style="background:' + color + '" title="' +
+              escapeHtml(s.status || '') + '">' + escapeHtml(empName) + '</span>';
+            schedIdAttr = s.id;
+            empNameAttr = empName;
+          });
+          tdClasses.push('sched-cell');
+          if (sched.length > 0) tdClasses.push('has-data');
+          const bg = (hol && hol.is_red) ? ' style="background:#fef9f9"' : '';
+          const dataAttrs =
+            ' data-date="' + dateStr + '"' +
+            ' data-store="' + store.id + '"' +
+            ' data-store-name="' + escapeHtml(store.name) + '"' +
+            ' data-shift="' + shift.code + '"' +
+            ' data-shift-name="' + escapeHtml(shift.name) + '"' +
+            (schedIdAttr ? ' data-sched-id="' + escapeHtml(schedIdAttr) + '" data-emp-name="' + escapeHtml(empNameAttr) + '"' : '');
+          html += '<td class="' + tdClasses.join(' ') + '"' + bg + dataAttrs +
+            ' onclick="onCellClick(this)">' + cellHtml + '</td>';
+        }
+        html += '</tr>';
+      });
+    });
+
+    // ---- 備註列（可編輯） ----
+    html += '<tr class="note-row store-start"><td colspan="2" class="row-label">備註</td>';
+    for (let d = 1; d <= days; d++){
+      const dateStr = DATA.year + '-' + monthStr + '-' + String(d).padStart(2,'0');
+      const hol = holidayMap[dateStr];
+      const note = DATA.dayNotes[dateStr] || '';
+      let cellInner = '';
+      if (hol && hol.is_red && hol.name){
+        cellInner += '<span class="red-name">' + escapeHtml(hol.name) + '</span>';
+      }
+      cellInner += escapeHtml(note);
+      html += '<td><div class="note-cell" contenteditable="true" data-date="' + dateStr +
+        '" data-orig="' + escapeHtml(note) + '">' + cellInner + '</div></td>';
+    }
+    html += '</tr>';
+
+    html += '</tbody>';
+    document.getElementById('grid').innerHTML = html;
+
+    // bind note edit handlers
+    document.querySelectorAll('.note-cell').forEach(el => {
+      el.addEventListener('blur', onNoteBlur);
+      el.addEventListener('keydown', onNoteKeydown);
+    });
+  }
+
+  function getEditableText(el){
+    // 抓 contenteditable 內的純文字（去除 red-name span 的紅字部分）
+    const clone = el.cloneNode(true);
+    clone.querySelectorAll('.red-name').forEach(n => n.remove());
+    return clone.textContent.replace(/\s+/g,' ').trim();
+  }
+
+  function onNoteKeydown(e){
+    if (e.key === 'Enter' && !e.shiftKey){
+      e.preventDefault();
+      e.target.blur();
+    }
+    if (e.key === 'Escape'){
+      e.preventDefault();
+      // 還原原值
+      const date = e.target.dataset.date;
+      const orig = e.target.dataset.orig || '';
+      const hol = DATA.holidays.find(h => h.date === date);
+      let html = '';
+      if (hol && hol.is_red && hol.name){
+        html += '<span class="red-name">' + escapeHtml(hol.name) + '</span>';
+      }
+      html += escapeHtml(orig);
+      e.target.innerHTML = html;
+      e.target.blur();
+    }
+  }
+
+  function onNoteBlur(e){
+    const el = e.target;
+    const date = el.dataset.date;
+    const orig = el.dataset.orig || '';
+    const newText = getEditableText(el);
+    if (newText === orig) return;
+
+    google.script.run
+      .withSuccessHandler(function(result){
+        el.dataset.orig = newText;
+        showToast('已儲存 ' + date);
+      })
+      .withFailureHandler(function(err){
+        showToast('儲存失敗：' + err.message, true);
+      })
+      .saveDayNote(date, newText);
+  }
+
+  let toastTimer = null;
+  function showToast(msg, isErr){
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'save-toast show' + (isErr ? ' err' : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.className = 'save-toast'; }, 2200);
+  }
+
+  function renderLegend(){
+    const el = document.getElementById('legend');
+    if (DATA.employees.length === 0){
+      el.innerHTML = '<span style="color:#94a3b8;font-size:12px">尚無在職員工</span>';
+      return;
+    }
+    el.innerHTML = DATA.employees.map(e =>
+      '<span class="legend-item" style="background:' + e.color + '">' +
+        escapeHtml(e.name) + ' <span style="color:#475569;font-size:11px">(' +
+        escapeHtml(e.id) + ')</span></span>'
+    ).join('');
+  }
+
+  function navMonth(delta){
+    let y = DATA.year, m = DATA.month + delta;
+    if (m < 1){m = 12; y--;}
+    if (m > 12){m = 1; y++;}
+    window.top.location.href = WEB_APP_URL + '?action=schedule&year=' + y + '&month=' + m;
+  }
+  function navToday(){
+    const now = new Date();
+    window.top.location.href = WEB_APP_URL + '?action=schedule&year=' +
+      now.getFullYear() + '&month=' + (now.getMonth()+1);
+  }
+
+  // ===== 排班 modal =====
+  let modalCtx = null;
+
+  function onCellClick(td){
+    const hasData = td.classList.contains('has-data');
+    if (hasData) openDeleteModal(td);
+    else openCreateModal(td);
+  }
+
+  function openCreateModal(td){
+    modalCtx = {
+      mode: 'create',
+      date: td.dataset.date,
+      store_id: td.dataset.store,
+      store_name: td.dataset.storeName,
+      shift_code: td.dataset.shift,
+      shift_name: td.dataset.shiftName
+    };
+    document.getElementById('modalTitle').textContent = '新增排班';
+    document.getElementById('modalSub').textContent = modalCtx.date + ' · ' + modalCtx.store_name + ' · ' + modalCtx.shift_name;
+    document.getElementById('mDate').textContent = modalCtx.date;
+    document.getElementById('mStore').textContent = modalCtx.store_name;
+    document.getElementById('mShift').textContent = modalCtx.shift_name;
+
+    const sel = document.getElementById('mEmployee');
+    sel.innerHTML = DATA.employees.map(e =>
+      '<option value="' + e.id + '">' + escapeHtml(e.name) + ' (' + e.id + ')</option>'
+    ).join('');
+    document.getElementById('mStatus').value = '草稿';
+
+    document.getElementById('modalCreateForm').style.display = '';
+    document.getElementById('modalDeleteForm').style.display = 'none';
+    document.getElementById('modal').classList.add('show');
+  }
+
+  function openDeleteModal(td){
+    modalCtx = {
+      mode: 'delete',
+      sched_id: td.dataset.schedId,
+      date: td.dataset.date,
+      shift_name: td.dataset.shiftName,
+      emp_name: td.dataset.empName,
+      store_name: td.dataset.storeName
+    };
+    document.getElementById('modalTitle').textContent = '刪除排班';
+    document.getElementById('modalSub').textContent = modalCtx.store_name;
+    document.getElementById('dEmpName').textContent = modalCtx.emp_name;
+    document.getElementById('dDate').textContent = modalCtx.date;
+    document.getElementById('dShift').textContent = modalCtx.shift_name;
+
+    document.getElementById('modalCreateForm').style.display = 'none';
+    document.getElementById('modalDeleteForm').style.display = '';
+    document.getElementById('modal').classList.add('show');
+  }
+
+  function closeModal(){
+    document.getElementById('modal').classList.remove('show');
+    modalCtx = null;
+  }
+
+  function onModalBackdropClick(e){
+    if (e.target.id === 'modal') closeModal();
+  }
+
+  function submitCreate(){
+    if (!modalCtx || modalCtx.mode !== 'create') return;
+    const payload = {
+      date: modalCtx.date,
+      employee_id: document.getElementById('mEmployee').value,
+      store_id: modalCtx.store_id,
+      shift_code: modalCtx.shift_code,
+      status: document.getElementById('mStatus').value
+    };
+    if (!payload.employee_id){
+      showToast('請選擇員工', true);
+      return;
+    }
+    showToast('儲存中...');
+    google.script.run
+      .withSuccessHandler(function(result){
+        closeModal();
+        window.top.location.reload();
+      })
+      .withFailureHandler(function(err){
+        showToast(err.message || '儲存失敗', true);
+      })
+      .createSchedule(payload);
+  }
+
+  function submitDelete(){
+    if (!modalCtx || modalCtx.mode !== 'delete') return;
+    showToast('刪除中...');
+    google.script.run
+      .withSuccessHandler(function(){
+        closeModal();
+        window.top.location.reload();
+      })
+      .withFailureHandler(function(err){
+        showToast(err.message || '刪除失敗', true);
+      })
+      .deleteSchedule(modalCtx.sched_id);
+  }
+
+  function openBulkModal(){
+    modalCtx = { mode: 'bulk' };
+    document.getElementById('modalTitle').textContent = '載入當月預設排班';
+    document.getElementById('modalSub').textContent = DATA.year + ' 年 ' + DATA.month + ' 月';
+    document.getElementById('modalCreateForm').style.display = 'none';
+    document.getElementById('modalDeleteForm').style.display = 'none';
+    document.getElementById('modalBulkForm').style.display = '';
+    document.getElementById('bulkStore').value = '';
+    document.getElementById('bulkStatus').value = '草稿';
+    document.getElementById('modal').classList.add('show');
+  }
+
+  function submitBulk(){
+    if (!modalCtx || modalCtx.mode !== 'bulk') return;
+    const storeFilter = document.getElementById('bulkStore').value;
+    const status = document.getElementById('bulkStatus').value;
+    showToast('載入中...');
+    google.script.run
+      .withSuccessHandler(function(result){
+        closeModal();
+        window.top.location.reload();
+      })
+      .withFailureHandler(function(err){
+        showToast(err.message || '載入失敗', true);
+      })
+      .bulkLoadDefaults(DATA.year, DATA.month, storeFilter, status);
+  }
+
+  // Esc 關閉 modal
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape') closeModal();
+  });
+
+  renderMonthLabel();
+  renderGrid();
+  renderLegend();
+</script>
+
+</body>
+</html>

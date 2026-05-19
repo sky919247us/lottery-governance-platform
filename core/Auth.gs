@@ -15,6 +15,7 @@ function doGet(e) {
     const action = params.action || 'home';
     if (action === 'home')     return pageHome_();
     if (action === 'bind')     return pageBindLanding_(e);
+    if (action === 'schedule') return pageSchedule_(e);
     return pageError_('未知頁面：' + action);
   } catch (err) {
     return pageError_('系統錯誤：' + (err && err.message ? err.message : err));
@@ -74,6 +75,19 @@ function pageCallback_(e) {
     return doBindWithToken_(stateObj.bind_token, profile);
   }
   return doLogin_(profile);
+}
+
+function pageSchedule_(e) {
+  const now = new Date();
+  const year = parseInt(e.parameter.year, 10) || now.getFullYear();
+  const month = parseInt(e.parameter.month, 10) || (now.getMonth() + 1);
+
+  const tpl = HtmlService.createTemplateFromFile('schedule');
+  tpl.data = getScheduleViewData(year, month);
+  tpl.webAppUrl = getWebAppUrl_();
+  return tpl.evaluate()
+    .setTitle('排班總覽 · ' + year + '/' + month)
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
 }
 
 function pageBindLanding_(e) {

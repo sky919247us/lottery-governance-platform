@@ -183,6 +183,8 @@ const CORE_MIGRATION_PLAN_ = [
       ['year', COL.HOLIDAYS.YEAR],
       ['name', COL.HOLIDAYS.NAME],
       ['is_red', COL.HOLIDAYS.IS_RED],
+      ['lunar', COL.HOLIDAYS.LUNAR],
+      ['note', COL.HOLIDAYS.NOTE],
       ['source', COL.HOLIDAYS.SOURCE]
     ]
   }

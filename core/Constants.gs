@@ -18,7 +18,8 @@ const SHEET_NAMES = {
   HOLIDAYS: '假日表',
   GLOSSARY: '欄位對照表',
   // Attendance Sheet
-  SHIFT_TYPES: '班別'
+  SHIFT_TYPES: '班別',
+  DEFAULT_SCHEDULE: '預設排班'
   // 年度分頁透過 attendanceSheetName_(prefix, year) 動態組合
 };
 
@@ -118,6 +119,8 @@ const COL = {
     YEAR: '年度',
     NAME: '名稱',
     IS_RED: '紅字',
+    LUNAR: '農曆',
+    NOTE: '備註',
     SOURCE: '資料來源'
   },
   SHIFT_TYPES: {
@@ -126,6 +129,12 @@ const COL = {
     IS_REGULAR: '常態班別',
     BREAK_MINUTES: '休息分鐘',
     BREAK_PERIODS: '休息時段'
+  },
+  DEFAULT_SCHEDULE: {
+    STORE_ID: '門市代號',
+    SHIFT_CODE: '班別代號',
+    EMPLOYEE_ID: '員工編號',
+    NOTE: '備註'
   },
   SCHEDULE: {
     SCHEDULE_ID: '排班ID',

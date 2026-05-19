@@ -80,6 +80,28 @@ function ShowAttendanceSheetUrl() {
   );
 }
 
+/** 為已存在的 Attendance Sheet 加上 預設排班 分頁（一次性 migration） */
+function MigrateAddDefaultScheduleSheet() {
+  const ss = getAttendanceSpreadsheet_();
+  if (ss.getSheetByName(SHEET_NAMES.DEFAULT_SCHEDULE)) {
+    SpreadsheetApp.getUi().alert('預設排班 分頁已存在');
+    return;
+  }
+  const sheet = ss.insertSheet(SHEET_NAMES.DEFAULT_SCHEDULE);
+  setHeaderRow_(sheet, [
+    COL.DEFAULT_SCHEDULE.STORE_ID, COL.DEFAULT_SCHEDULE.SHIFT_CODE,
+    COL.DEFAULT_SCHEDULE.EMPLOYEE_ID, COL.DEFAULT_SCHEDULE.NOTE
+  ]);
+  SpreadsheetApp.getUi().alert(
+    '✓ 預設排班 分頁已建立\n\n' +
+    '請在該分頁手動填入每店每班的固定員工，例如：\n' +
+    'LUCKY | MORNING | E001\n' +
+    'LUCKY | EVENING | E002\n' +
+    'MONEY | MORNING | E004\n\n' +
+    '填完後到排班視圖按「載入預設」即可整月套用。'
+  );
+}
+
 /** 每年初手動執行：為新年度開啟一組分頁 */
 function CreateAttendanceSheetsForNextYear() {
   const ss = getAttendanceSpreadsheet_();
@@ -101,6 +123,12 @@ function bootstrapAttendanceSheet_(ss, year) {
     ['MORNING', '早班', true, 60, '10:00-10:30,14:30-15:00'],
     ['EVENING', '晚班', true, 60, '20:00-20:30,00:30-01:00'],
     ['NIGHT', '大夜', false, 0, '']
+  ]);
+
+  const defaultSchedSheet = ss.insertSheet(SHEET_NAMES.DEFAULT_SCHEDULE);
+  setHeaderRow_(defaultSchedSheet, [
+    COL.DEFAULT_SCHEDULE.STORE_ID, COL.DEFAULT_SCHEDULE.SHIFT_CODE,
+    COL.DEFAULT_SCHEDULE.EMPLOYEE_ID, COL.DEFAULT_SCHEDULE.NOTE
   ]);
 
   createYearlySheets_(ss, year);
