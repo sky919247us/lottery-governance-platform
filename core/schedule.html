@@ -79,6 +79,14 @@
       border-style:dashed;
       border-color:rgba(15,23,42,.55);
     }
+    /* 待同步：點點邊框 + 微微 pulse */
+    .emp-tag.pending{
+      opacity:.55;
+      border-style:dotted;
+      border-color:#f59e0b;
+      animation:pulse 1.2s ease-in-out infinite alternate;
+    }
+    @keyframes pulse{from{opacity:.45}to{opacity:.75}}
     .note-row td{
       background:#fefce8;height:auto;padding:6px 4px;font-size:11px;
       color:#854d0e;line-height:1.3;
@@ -187,6 +195,7 @@
     <button onclick="navMonth(1)">下個月 ›</button>
     <button onclick="navToday()">今天</button>
     <button onclick="openBulkModal()" style="background:#0f172a;color:#fff;border-color:#0f172a">📋 載入預設</button>
+    <button onclick="openConfirmAllModal()" style="background:#059669;color:#fff;border-color:#059669">✓ 批次確認</button>
   </div>
 </div>
 
@@ -230,9 +239,30 @@
       <div class="form-row"><label>員工</label><span class="val" id="dEmpName"></span></div>
       <div class="form-row"><label>日期</label><span class="val" id="dDate"></span></div>
       <div class="form-row"><label>班別</label><span class="val" id="dShift"></span></div>
-      <div class="actions">
+      <div class="form-row"><label>狀態</label><span class="val" id="dStatus"></span></div>
+      <div class="actions" style="flex-wrap:wrap">
         <button onclick="closeModal()">取消</button>
         <button class="danger" onclick="submitDelete()">刪除排班</button>
+        <button class="primary" id="toggleStatusBtn" onclick="submitToggleStatus()"></button>
+      </div>
+    </div>
+    <div id="modalConfirmAllForm" style="display:none">
+      <div class="form-row">
+        <label>範圍</label>
+        <select id="confirmAllStore">
+          <option value="">全部三店</option>
+          <option value="LUCKY">好運彩券行</option>
+          <option value="BINGO">賓果彩券行</option>
+          <option value="MONEY">撿到錢投注站</option>
+        </select>
+      </div>
+      <p style="font-size:12px;color:#64748b;margin:8px 0">
+        將當月所有「草稿」狀態的排班一次轉為「已確認」。<br>
+        已確認的不變動。執行後不能撤銷（要還原請逐格點選轉回草稿）。
+      </p>
+      <div class="actions">
+        <button onclick="closeModal()">取消</button>
+        <button class="primary" onclick="submitConfirmAll()">確認當月草稿</button>
       </div>
     </div>
     <div id="modalBulkForm" style="display:none">
@@ -333,22 +363,27 @@
             const emp = empMap[s.employee_id];
             const empName = emp ? emp.name : s.employee_id;
             const color = emp ? emp.color : '#ddd';
-            const draftCls = (s.status === '草稿') ? ' draft' : '';
-            cellHtml += '<span class="emp-tag' + draftCls + '" style="background:' + color + '" title="' +
-              escapeHtml(s.status || '') + '">' + escapeHtml(empName) + '</span>';
+            let cls = '';
+            if (s._pending) cls += ' pending';
+            else if (s.status === '草稿') cls += ' draft';
+            cellHtml += '<span class="emp-tag' + cls + '" style="background:' + color + '" title="' +
+              escapeHtml(s.status || '') + (s._pending ? ' (儲存中)' : '') + '">' +
+              escapeHtml(empName) + '</span>';
             schedIdAttr = s.id;
             empNameAttr = empName;
           });
           tdClasses.push('sched-cell');
           if (sched.length > 0) tdClasses.push('has-data');
           const bg = (hol && hol.is_red) ? ' style="background:#fef9f9"' : '';
+          const lastSched = sched[sched.length - 1];
+          const statusAttr = lastSched ? lastSched.status || '' : '';
           const dataAttrs =
             ' data-date="' + dateStr + '"' +
             ' data-store="' + store.id + '"' +
             ' data-store-name="' + escapeHtml(store.name) + '"' +
             ' data-shift="' + shift.code + '"' +
             ' data-shift-name="' + escapeHtml(shift.name) + '"' +
-            (schedIdAttr ? ' data-sched-id="' + escapeHtml(schedIdAttr) + '" data-emp-name="' + escapeHtml(empNameAttr) + '"' : '');
+            (schedIdAttr ? ' data-sched-id="' + escapeHtml(schedIdAttr) + '" data-emp-name="' + escapeHtml(empNameAttr) + '" data-status="' + escapeHtml(statusAttr) + '"' : '');
           html += '<td class="' + tdClasses.join(' ') + '"' + bg + dataAttrs +
             ' onclick="onCellClick(this)">' + cellHtml + '</td>';
         }
@@ -498,23 +533,118 @@
   }
 
   function openDeleteModal(td){
+    const status = td.dataset.status || '';
     modalCtx = {
-      mode: 'delete',
+      mode: 'manage',
       sched_id: td.dataset.schedId,
       date: td.dataset.date,
       shift_name: td.dataset.shiftName,
       emp_name: td.dataset.empName,
-      store_name: td.dataset.storeName
+      store_name: td.dataset.storeName,
+      status: status
     };
-    document.getElementById('modalTitle').textContent = '刪除排班';
+    document.getElementById('modalTitle').textContent = '管理排班';
     document.getElementById('modalSub').textContent = modalCtx.store_name;
     document.getElementById('dEmpName').textContent = modalCtx.emp_name;
     document.getElementById('dDate').textContent = modalCtx.date;
     document.getElementById('dShift').textContent = modalCtx.shift_name;
+    document.getElementById('dStatus').textContent = status || '(未知)';
+
+    const btn = document.getElementById('toggleStatusBtn');
+    if (status === '草稿'){
+      btn.textContent = '✓ 轉為已確認';
+      btn.style.display = '';
+    } else if (status === '已確認'){
+      btn.textContent = '✎ 轉回草稿';
+      btn.style.display = '';
+    } else {
+      btn.style.display = 'none';
+    }
 
     document.getElementById('modalCreateForm').style.display = 'none';
+    document.getElementById('modalBulkForm').style.display = 'none';
+    document.getElementById('modalConfirmAllForm').style.display = 'none';
     document.getElementById('modalDeleteForm').style.display = '';
     document.getElementById('modal').classList.add('show');
+  }
+
+  function submitToggleStatus(){
+    if (!modalCtx || modalCtx.mode !== 'manage') return;
+    const schedId = modalCtx.sched_id;
+    const next = modalCtx.status === '草稿' ? '已確認' : '草稿';
+
+    // 樂觀更新
+    closeModal();
+    const sched = DATA.schedules.find(s => s.id === schedId);
+    const oldStatus = sched ? sched.status : null;
+    if (sched){
+      sched.status = next;
+      sched._pending = true;
+    }
+    renderGrid();
+
+    google.script.run
+      .withSuccessHandler(function(){
+        if (sched){ delete sched._pending; }
+        renderGrid();
+      })
+      .withFailureHandler(function(err){
+        if (sched){
+          sched.status = oldStatus;
+          delete sched._pending;
+        }
+        renderGrid();
+        showToast(err.message || '切換失敗', true);
+      })
+      .updateScheduleStatus(schedId, next);
+  }
+
+  function openConfirmAllModal(){
+    modalCtx = { mode: 'confirmAll' };
+    document.getElementById('modalTitle').textContent = '批次確認當月草稿';
+    document.getElementById('modalSub').textContent = DATA.year + ' 年 ' + DATA.month + ' 月';
+    document.getElementById('confirmAllStore').value = '';
+
+    document.getElementById('modalCreateForm').style.display = 'none';
+    document.getElementById('modalDeleteForm').style.display = 'none';
+    document.getElementById('modalBulkForm').style.display = 'none';
+    document.getElementById('modalConfirmAllForm').style.display = '';
+    document.getElementById('modal').classList.add('show');
+  }
+
+  function submitConfirmAll(){
+    if (!modalCtx || modalCtx.mode !== 'confirmAll') return;
+    const storeFilter = document.getElementById('confirmAllStore').value;
+
+    // 樂觀更新：把符合條件的本月草稿全部設為已確認
+    closeModal();
+    const monthStr = ('0' + DATA.month).slice(-2);
+    const prefix = DATA.year + '-' + monthStr;
+    const snapshot = []; // 用於失敗回滾
+    DATA.schedules.forEach(function (s) {
+      if (String(s.date).indexOf(prefix) !== 0) return;
+      if (storeFilter && s.store_id !== storeFilter) return;
+      if (s.status !== '草稿') return;
+      snapshot.push({ id: s.id, old: s.status });
+      s.status = '已確認';
+    });
+    renderGrid();
+    showToast('確認中...');
+
+    google.script.run
+      .withSuccessHandler(function(result){
+        showToast('已確認 ' + result.count + ' 筆草稿');
+      })
+      .withFailureHandler(function(err){
+        // 回滾
+        snapshot.forEach(function (snap) {
+          const s = DATA.schedules.find(x => x.id === snap.id);
+          if (s) s.status = snap.old;
+        });
+        renderGrid();
+        showToast(err.message || '批次確認失敗', true);
+      })
+      .confirmAllDrafts(DATA.year, DATA.month, storeFilter);
   }
 
   function closeModal(){
@@ -526,43 +656,97 @@
     if (e.target.id === 'modal') closeModal();
   }
 
+  // 不 reload — 抓最新資料 in-place 重繪
+  function refreshData(onDoneToast){
+    google.script.run
+      .withSuccessHandler(function(newData){
+        DATA = newData;
+        renderGrid();
+        renderLegend();
+        if (onDoneToast) showToast(onDoneToast);
+      })
+      .withFailureHandler(function(err){
+        showToast('刷新失敗：' + (err.message || err), true);
+      })
+      .getScheduleViewData(DATA.year, DATA.month);
+  }
+
   function submitCreate(){
     if (!modalCtx || modalCtx.mode !== 'create') return;
-    const payload = {
-      date: modalCtx.date,
-      employee_id: document.getElementById('mEmployee').value,
-      store_id: modalCtx.store_id,
-      shift_code: modalCtx.shift_code,
-      status: document.getElementById('mStatus').value
-    };
-    if (!payload.employee_id){
+    const empId = document.getElementById('mEmployee').value;
+    if (!empId){
       showToast('請選擇員工', true);
       return;
     }
-    showToast('儲存中...');
+    const status = document.getElementById('mStatus').value;
+
+    // 帶上 store 的預設時間，省 server 一次 Stores 表 lookup
+    const store = (DATA.stores || []).find(s => s.id === modalCtx.store_id) || {};
+    let st = '', en = '';
+    if (modalCtx.shift_code === 'MORNING'){ st = store.morning_start || ''; en = store.morning_end || ''; }
+    else if (modalCtx.shift_code === 'EVENING'){ st = store.evening_start || ''; en = store.evening_end || ''; }
+
+    const payload = {
+      date: modalCtx.date,
+      employee_id: empId,
+      store_id: modalCtx.store_id,
+      shift_code: modalCtx.shift_code,
+      start_time: st, end_time: en,
+      status: status
+    };
+
+    // 樂觀更新 — modal 立即關 + DATA 立即插入 + 立即重繪
+    closeModal();
+    const tempId = 'tmp-' + Date.now();
+    const optimistic = {
+      id: tempId,
+      date: payload.date,
+      employee_id: empId,
+      store_id: payload.store_id,
+      shift_code: payload.shift_code,
+      start_time: st, end_time: en,
+      pay_override: '',
+      status: status,
+      _pending: true
+    };
+    DATA.schedules.push(optimistic);
+    renderGrid();
+
     google.script.run
       .withSuccessHandler(function(result){
-        closeModal();
-        window.top.location.reload();
+        const sched = DATA.schedules.find(s => s.id === tempId);
+        if (sched){
+          sched.id = result.schedule_id;
+          delete sched._pending;
+        }
+        renderGrid();
       })
       .withFailureHandler(function(err){
+        DATA.schedules = DATA.schedules.filter(s => s.id !== tempId);
+        renderGrid();
         showToast(err.message || '儲存失敗', true);
       })
       .createSchedule(payload);
   }
 
   function submitDelete(){
-    if (!modalCtx || modalCtx.mode !== 'delete') return;
-    showToast('刪除中...');
+    if (!modalCtx || modalCtx.mode !== 'manage') return;
+    const schedId = modalCtx.sched_id;
+
+    // 樂觀刪除 — modal 立即關 + 從 DATA 移除 + 立即重繪
+    closeModal();
+    const removedIdx = DATA.schedules.findIndex(s => s.id === schedId);
+    const removed = removedIdx >= 0 ? DATA.schedules.splice(removedIdx, 1)[0] : null;
+    renderGrid();
+
     google.script.run
-      .withSuccessHandler(function(){
-        closeModal();
-        window.top.location.reload();
-      })
+      .withSuccessHandler(function(){ /* 已成功，UI 不需動 */ })
       .withFailureHandler(function(err){
+        if (removed) DATA.schedules.push(removed);
+        renderGrid();
         showToast(err.message || '刪除失敗', true);
       })
-      .deleteSchedule(modalCtx.sched_id);
+      .deleteSchedule(schedId);
   }
 
   function openBulkModal(){
@@ -585,7 +769,8 @@
     google.script.run
       .withSuccessHandler(function(result){
         closeModal();
-        window.top.location.reload();
+        const msg = '新增 ' + result.created + '，跳過 ' + result.skipped;
+        refreshData(msg);
       })
       .withFailureHandler(function(err){
         showToast(err.message || '載入失敗', true);

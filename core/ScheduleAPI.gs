@@ -20,13 +20,45 @@ function getScheduleViewData(year, month) {
     year: y,
     month: m,
     today: Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd'),
-    employees: getEmployeesForView_(),
-    stores: getStoresForView_(),
-    shiftTypes: getShiftTypesForView_(),
+    employees: getEmployeesForViewCached_(),
+    stores: getStoresForViewCached_(),
+    shiftTypes: getShiftTypesForViewCached_(),
     schedules: getSchedulesForMonth_(y, m),
     holidays: holidays,
     dayNotes: buildDayNotesForMonth_(holidays)
   };
+}
+
+/** 快取常變資料 — 5 分鐘 TTL。員工 / 門市 / 班別 變動不頻繁 */
+function getEmployeesForViewCached_() {
+  return getCachedOrCompute_('emp_view', 300, getEmployeesForView_);
+}
+function getStoresForViewCached_() {
+  return getCachedOrCompute_('stores_view', 600, getStoresForView_);
+}
+function getShiftTypesForViewCached_() {
+  return getCachedOrCompute_('shifttypes_view', 1800, getShiftTypesForView_);
+}
+
+function getCachedOrCompute_(key, ttl, fn) {
+  try {
+    const cache = CacheService.getScriptCache();
+    const cached = cache.get(key);
+    if (cached) return JSON.parse(cached);
+    const result = fn();
+    const s = JSON.stringify(result);
+    if (s.length < 100000) cache.put(key, s, ttl);
+    return result;
+  } catch (e) {
+    return fn();
+  }
+}
+
+/** Cache invalidation — 寫入員工/門市/班別後呼叫，立即失效 */
+function invalidateViewCaches_() {
+  try {
+    CacheService.getScriptCache().removeAll(['emp_view', 'stores_view', 'shifttypes_view']);
+  } catch (e) {}
 }
 
 function getEmployeesForView_() {
@@ -77,11 +109,22 @@ function getStoresForView_() {
   const idCol = headers.indexOf(COL.STORES.ID);
   const nameCol = headers.indexOf(COL.STORES.NAME);
   const statusCol = headers.indexOf(COL.STORES.STATUS);
+  const mStart = headers.indexOf(COL.STORES.MORNING_START);
+  const mEnd = headers.indexOf(COL.STORES.MORNING_END);
+  const eStart = headers.indexOf(COL.STORES.EVENING_START);
+  const eEnd = headers.indexOf(COL.STORES.EVENING_END);
 
   const out = [];
   for (let i = 1; i < data.length; i++) {
     if (data[i][statusCol] !== 'active') continue;
-    out.push({ id: data[i][idCol], name: data[i][nameCol] });
+    out.push({
+      id: data[i][idCol],
+      name: data[i][nameCol],
+      morning_start: String(data[i][mStart] || ''),
+      morning_end: String(data[i][mEnd] || ''),
+      evening_start: String(data[i][eStart] || ''),
+      evening_end: String(data[i][eEnd] || '')
+    });
   }
   return out;
 }
@@ -245,26 +288,8 @@ function createSchedule(payload) {
   if (!payload.store_id) throw new Error('門市必填');
   if (!payload.shift_code) throw new Error('班別必填');
 
-  const emp = findEmployeeById_(payload.employee_id);
-  if (!emp) throw new Error('員工不存在：' + payload.employee_id);
-  const store = findStoreById_(payload.store_id);
-  if (!store) throw new Error('門市不存在：' + payload.store_id);
-
-  // 預設時間：早 / 晚班套用該店預設，大夜留空待手填
-  let start_time = payload.start_time || '';
-  let end_time = payload.end_time || '';
-  if (!start_time && payload.shift_code === 'MORNING') {
-    start_time = String(store[COL.STORES.MORNING_START] || '');
-  }
-  if (!end_time && payload.shift_code === 'MORNING') {
-    end_time = String(store[COL.STORES.MORNING_END] || '');
-  }
-  if (!start_time && payload.shift_code === 'EVENING') {
-    start_time = String(store[COL.STORES.EVENING_START] || '');
-  }
-  if (!end_time && payload.shift_code === 'EVENING') {
-    end_time = String(store[COL.STORES.EVENING_END] || '');
-  }
+  // 速度優化：信任 client 傳來的 employee_id / store_id 已是 active 的（已從 DATA 帶下來）
+  // 不再做 findEmployeeById_ / findStoreById_ 全表掃描
 
   const year = parseInt(payload.date.substring(0, 4), 10);
   const ass = getAttendanceSpreadsheet_();
@@ -274,18 +299,21 @@ function createSchedule(payload) {
   const lock = LockService.getScriptLock();
   lock.waitLock(5000);
   try {
-    const data = sheet.getDataRange().getValues();
-    const headers = data[0];
+    const lastCol = sheet.getLastColumn();
+    const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
     const idColIdx = headers.indexOf(COL.SCHEDULE.SCHEDULE_ID);
-    const dateColIdx = headers.indexOf(COL.SCHEDULE.DATE);
-    const empColIdx = headers.indexOf(COL.SCHEDULE.EMPLOYEE_ID);
 
     const id = 'SCH-' + payload.date.replace(/-/g, '') + '-' +
                payload.employee_id + '-' + payload.shift_code;
-    // ID 唯一性檢查（同店同班同員工同日 才會撞）
-    for (let i = 1; i < data.length; i++) {
-      if (data[i][idColIdx] === id) {
-        throw new Error(emp.name + ' 在 ' + payload.date + ' 的此班次已存在');
+
+    // 速度優化：只讀 ID 欄做唯一性檢查，不讀全表
+    const lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      const ids = sheet.getRange(2, idColIdx + 1, lastRow - 1, 1).getValues();
+      for (let i = 0; i < ids.length; i++) {
+        if (ids[i][0] === id) {
+          throw new Error(payload.employee_id + ' 在 ' + payload.date + ' 的此班次已存在');
+        }
       }
     }
 
@@ -295,12 +323,12 @@ function createSchedule(payload) {
 
     const newRow = headers.map(function () { return ''; });
     newRow[idColIdx] = id;
-    newRow[dateColIdx] = payload.date;
-    newRow[empColIdx] = payload.employee_id;
+    newRow[headers.indexOf(COL.SCHEDULE.DATE)] = payload.date;
+    newRow[headers.indexOf(COL.SCHEDULE.EMPLOYEE_ID)] = payload.employee_id;
     newRow[headers.indexOf(COL.SCHEDULE.STORE_ID)] = payload.store_id;
     newRow[headers.indexOf(COL.SCHEDULE.SHIFT_CODE)] = payload.shift_code;
-    newRow[headers.indexOf(COL.SCHEDULE.START_TIME)] = start_time;
-    newRow[headers.indexOf(COL.SCHEDULE.END_TIME)] = end_time;
+    newRow[headers.indexOf(COL.SCHEDULE.START_TIME)] = payload.start_time || '';
+    newRow[headers.indexOf(COL.SCHEDULE.END_TIME)] = payload.end_time || '';
     newRow[headers.indexOf(COL.SCHEDULE.PAY_MODE_OVERRIDE)] = payload.pay_mode_override || '';
     newRow[headers.indexOf(COL.SCHEDULE.HOURLY_RATE_OVERRIDE)] = payload.hourly_rate_override || '';
     newRow[headers.indexOf(COL.SCHEDULE.STATUS)] = status;
@@ -315,7 +343,95 @@ function createSchedule(payload) {
   }
 }
 
-/** 刪除排班 */
+/** 切換單筆排班狀態（草稿 ↔ 已確認） */
+function updateScheduleStatus(scheduleId, newStatus) {
+  if (!scheduleId) throw new Error('schedule_id 必填');
+  if (newStatus !== '草稿' && newStatus !== '已確認') throw new Error('狀態值錯誤');
+  const m = /^SCH-(\d{4})/.exec(String(scheduleId));
+  if (!m) throw new Error('schedule_id 格式錯誤');
+  const year = m[1];
+
+  const ass = getAttendanceSpreadsheet_();
+  const sheet = ass.getSheetByName(attendanceSheetName_(ATTENDANCE_PREFIX.SCHEDULE, year));
+  if (!sheet) throw new Error('排班_' + year + ' 分頁不存在');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(5000);
+  try {
+    const lastCol = sheet.getLastColumn();
+    const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    const idColIdx = headers.indexOf(COL.SCHEDULE.SCHEDULE_ID);
+    const statusColIdx = headers.indexOf(COL.SCHEDULE.STATUS);
+    const updatedColIdx = headers.indexOf(COL.SCHEDULE.UPDATED_AT);
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) throw new Error('找不到排班：' + scheduleId);
+    const ids = sheet.getRange(2, idColIdx + 1, lastRow - 1, 1).getValues();
+    for (let i = 0; i < ids.length; i++) {
+      if (ids[i][0] === scheduleId) {
+        sheet.getRange(i + 2, statusColIdx + 1).setValue(newStatus);
+        sheet.getRange(i + 2, updatedColIdx + 1).setValue(new Date());
+        return { ok: true, status: newStatus };
+      }
+    }
+    throw new Error('找不到排班：' + scheduleId);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * 批次：把指定月（可選店篩選）的所有「草稿」一次轉「已確認」。
+ * 用 batch read/write 加速：只動 status + updated_at 兩欄。
+ */
+function confirmAllDrafts(year, month, storeFilter) {
+  const y = parseInt(year, 10);
+  const m = parseInt(month, 10);
+  if (!y || !m) throw new Error('year/month 必填');
+
+  const ass = getAttendanceSpreadsheet_();
+  const sheet = ass.getSheetByName(attendanceSheetName_(ATTENDANCE_PREFIX.SCHEDULE, y));
+  if (!sheet) throw new Error('排班_' + y + ' 分頁不存在');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(8000);
+  try {
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return { ok: true, count: 0 };
+    const lastCol = sheet.getLastColumn();
+    const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    const dateColIdx = headers.indexOf(COL.SCHEDULE.DATE);
+    const storeColIdx = headers.indexOf(COL.SCHEDULE.STORE_ID);
+    const statusColIdx = headers.indexOf(COL.SCHEDULE.STATUS);
+    const updatedColIdx = headers.indexOf(COL.SCHEDULE.UPDATED_AT);
+
+    // 一次讀整段範圍，記憶體修改後再一次寫回
+    const dataRange = sheet.getRange(2, 1, lastRow - 1, lastCol);
+    const data = dataRange.getValues();
+    const monthStr = ('0' + m).slice(-2);
+    const prefix = y + '-' + monthStr;
+    const now = new Date();
+    let count = 0;
+
+    for (let i = 0; i < data.length; i++) {
+      const dv = data[i][dateColIdx];
+      const ds = (dv instanceof Date)
+        ? Utilities.formatDate(dv, TIMEZONE, 'yyyy-MM-dd')
+        : String(dv);
+      if (ds.indexOf(prefix) !== 0) continue;
+      if (storeFilter && data[i][storeColIdx] !== storeFilter) continue;
+      if (data[i][statusColIdx] !== '草稿') continue;
+      data[i][statusColIdx] = '已確認';
+      data[i][updatedColIdx] = now;
+      count++;
+    }
+    if (count > 0) dataRange.setValues(data);
+    return { ok: true, count: count };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 刪除排班 — 只讀 ID 欄做查找，不讀全表 */
 function deleteSchedule(scheduleId) {
   if (!scheduleId) throw new Error('schedule_id 必填');
   const m = /^SCH-(\d{4})/.exec(String(scheduleId));
@@ -329,12 +445,15 @@ function deleteSchedule(scheduleId) {
   const lock = LockService.getScriptLock();
   lock.waitLock(5000);
   try {
-    const data = sheet.getDataRange().getValues();
-    const headers = data[0];
-    const idCol = headers.indexOf(COL.SCHEDULE.SCHEDULE_ID);
-    for (let i = 1; i < data.length; i++) {
-      if (data[i][idCol] === scheduleId) {
-        sheet.deleteRow(i + 1);
+    const lastCol = sheet.getLastColumn();
+    const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    const idColIdx = headers.indexOf(COL.SCHEDULE.SCHEDULE_ID);
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) throw new Error('找不到排班：' + scheduleId);
+    const ids = sheet.getRange(2, idColIdx + 1, lastRow - 1, 1).getValues();
+    for (let i = 0; i < ids.length; i++) {
+      if (ids[i][0] === scheduleId) {
+        sheet.deleteRow(i + 2);
         return { ok: true };
       }
     }
