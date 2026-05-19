@@ -22,11 +22,12 @@
       letter-spacing:.15em;text-transform:uppercase;color:#64748b;
     }
     .nav{display:flex;align-items:center;gap:8px;margin-left:auto}
-    .nav button{
+    .nav button,.nav .nav-btn{
       background:#fff;border:1px solid #e5e7eb;border-radius:4px;
       padding:6px 12px;font-size:13px;cursor:pointer;color:#0f172a;
+      text-decoration:none;display:inline-block;line-height:normal;
     }
-    .nav button:hover{background:#f1f5f9}
+    .nav button:hover,.nav .nav-btn:hover{background:#f1f5f9}
     .nav .month-label{
       font-weight:600;font-size:15px;min-width:120px;text-align:center;
     }
@@ -89,6 +90,40 @@
     @keyframes pulse{from{opacity:.45}to{opacity:.75}}
     /* 跑班標記：色卡後加 $ 符號 */
     .emp-tag.hourly::after{content:' $';opacity:.7;font-weight:700}
+
+    /* 一般員工：隱藏 admin 限定的功能 */
+    body.is-staff .admin-only{display:none !important}
+
+    /* 換班 badge */
+    #swapBadge{
+      display:none;background:#fff;color:#7c3aed;font-weight:700;
+      padding:1px 6px;border-radius:8px;font-size:11px;margin-left:4px;
+    }
+    #swapBadge.has-pending{display:inline}
+
+    /* 換班列表 item */
+    .swap-item{
+      border:1px solid #e5e7eb;border-radius:6px;padding:12px;
+      margin-bottom:8px;font-size:13px;
+    }
+    .swap-item .swap-header{
+      display:flex;justify-content:space-between;align-items:center;
+      margin-bottom:8px;
+    }
+    .swap-item .swap-status{
+      font-size:11px;padding:2px 8px;border-radius:3px;
+      font-family:ui-monospace,SFMono-Regular,monospace;
+    }
+    .swap-status.s-pending-counter{background:#fef3c7;color:#92400e}
+    .swap-status.s-pending-manager{background:#dbeafe;color:#1e40af}
+    .swap-item .swap-detail{
+      background:#f8fafc;padding:8px;border-radius:4px;
+      font-size:12px;color:#475569;margin-bottom:8px;line-height:1.6;
+    }
+    .swap-item .swap-actions{display:flex;gap:6px;flex-wrap:wrap}
+    .swap-item .swap-actions button{
+      padding:6px 12px;font-size:12px;
+    }
     .note-row td{
       background:#fefce8;height:auto;padding:6px 4px;font-size:11px;
       color:#854d0e;line-height:1.3;
@@ -214,12 +249,13 @@
 <div class="topbar">
   <h1>排班 · 三店月曆總覽</h1>
   <div class="nav">
-    <button onclick="navMonth(-1)">‹ 上個月</button>
+    <a href="<?!= prevUrl ?>" target="_top" class="nav-btn">‹ 上個月</a>
     <span class="month-label" id="monthLabel"></span>
-    <button onclick="navMonth(1)">下個月 ›</button>
-    <button onclick="navToday()">今天</button>
-    <button onclick="openBulkModal()" style="background:#0f172a;color:#fff;border-color:#0f172a">📋 載入預設</button>
-    <button onclick="openConfirmAllModal()" style="background:#059669;color:#fff;border-color:#059669">✓ 批次確認</button>
+    <a href="<?!= nextUrl ?>" target="_top" class="nav-btn">下個月 ›</a>
+    <a href="<?!= todayUrl ?>" target="_top" class="nav-btn">今天</a>
+    <button onclick="openBulkModal()" class="admin-only" style="background:#0f172a;color:#fff;border-color:#0f172a">📋 載入預設</button>
+    <button onclick="openConfirmAllModal()" class="admin-only" style="background:#059669;color:#fff;border-color:#059669">✓ 批次確認</button>
+    <button onclick="openSwapsListModal()" id="swapsBtn" style="background:#7c3aed;color:#fff;border-color:#7c3aed">🔄 換班 <span id="swapBadge"></span></button>
   </div>
 </div>
 
@@ -292,8 +328,34 @@
       </div>
       <div class="actions" style="flex-wrap:wrap">
         <button onclick="closeModal()">取消</button>
+        <button onclick="openSwapFromManage()" style="background:#7c3aed;color:#fff;border-color:#7c3aed">🔄 申請換班</button>
         <button class="danger" onclick="submitDelete()">刪除</button>
         <button class="primary" onclick="submitUpdate()">儲存變更</button>
+      </div>
+    </div>
+    <div id="modalSwapCreateForm" style="display:none">
+      <div class="form-row"><label>我的班</label><span class="val" id="swMine"></span></div>
+      <div class="form-row">
+        <label>對方</label>
+        <select id="swEmployee" onchange="onSwapEmployeeChange()"></select>
+      </div>
+      <div class="form-row">
+        <label>對方班次</label>
+        <select id="swSchedule"></select>
+      </div>
+      <p style="font-size:12px;color:#64748b;margin:8px 0">
+        送出後狀態為「待對方同意」，對方同意後再交店長核可。<br>
+        核可後系統會自動將兩班的員工互換。
+      </p>
+      <div class="actions">
+        <button onclick="closeModal()">取消</button>
+        <button class="primary" onclick="submitSwapCreate()">送出申請</button>
+      </div>
+    </div>
+    <div id="modalSwapListForm" style="display:none">
+      <div id="swapListContent" style="max-height:50vh;overflow-y:auto;margin-bottom:12px"></div>
+      <div class="actions">
+        <button onclick="closeModal()">關閉</button>
       </div>
     </div>
     <div id="modalConfirmAllForm" style="display:none">
@@ -345,8 +407,21 @@
 </div>
 
 <script>
-  const DATA = <?!= JSON.stringify(data) ?>;
+  // 注意：DATA 用 let 因為 refreshData 會整個重新指派；其他常數用 const 即可
+  let DATA = <?!= JSON.stringify(data) ?>;
   const WEB_APP_URL = <?!= JSON.stringify(webAppUrl) ?>;
+  const SID = <?!= JSON.stringify(sid) ?>;
+  const CURRENT_USER = <?!= JSON.stringify(currentUser) ?>;
+  const IS_ADMIN = CURRENT_USER && (CURRENT_USER.role === 'admin' || CURRENT_USER.role === 'manager');
+  const IS_STAFF = !IS_ADMIN;
+
+  // 標記 body class 給 CSS 控制顯示
+  document.body.classList.toggle('is-staff', IS_STAFF);
+  document.body.classList.toggle('is-admin', IS_ADMIN);
+
+  function withSid(url){
+    return SID ? (url + (url.indexOf('?') >= 0 ? '&' : '?') + 'sid=' + encodeURIComponent(SID)) : url;
+  }
 
   function escapeHtml(s){
     return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -596,17 +671,8 @@
     tbl.innerHTML = head + '<tbody>' + rows + '</tbody>';
   }
 
-  function navMonth(delta){
-    let y = DATA.year, m = DATA.month + delta;
-    if (m < 1){m = 12; y--;}
-    if (m > 12){m = 1; y++;}
-    window.top.location.href = WEB_APP_URL + '?action=schedule&year=' + y + '&month=' + m;
-  }
-  function navToday(){
-    const now = new Date();
-    window.top.location.href = WEB_APP_URL + '?action=schedule&year=' +
-      now.getFullYear() + '&month=' + (now.getMonth()+1);
-  }
+  // 月份導航改用 <a target="_top"> 真實連結（topbar 預先 server 算好 URL）
+  // navMonth/navToday/navigateTop 已不需要
 
   // ===== 排班 modal =====
   let modalCtx = null;
@@ -633,9 +699,18 @@
     document.getElementById('mShift').textContent = modalCtx.shift_name;
 
     const sel = document.getElementById('mEmployee');
-    sel.innerHTML = DATA.employees.map(e =>
-      '<option value="' + e.id + '">' + escapeHtml(e.name) + ' (' + e.id + ')</option>'
-    ).join('');
+    if (IS_STAFF){
+      // 員工只能排自己的班
+      const me = CURRENT_USER;
+      sel.innerHTML = '<option value="' + me.id + '" selected>' +
+        escapeHtml(me.name) + ' (' + me.id + ')</option>';
+      sel.disabled = true;
+    } else {
+      sel.innerHTML = DATA.employees.map(e =>
+        '<option value="' + e.id + '">' + escapeHtml(e.name) + ' (' + e.id + ')</option>'
+      ).join('');
+      sel.disabled = false;
+    }
     document.getElementById('mStatus').value = '草稿';
 
     document.getElementById('modalCreateForm').style.display = '';
@@ -748,6 +823,195 @@
       .updateSchedule(schedId, updates);
   }
 
+  // ===== 換班申請 =====
+  function openSwapFromManage(){
+    if (!modalCtx || modalCtx.mode !== 'manage') return;
+    const sched = DATA.schedules.find(s => s.id === modalCtx.sched_id);
+    if (!sched){ showToast('找不到班次', true); return; }
+    const myEmp = DATA.employees.find(e => e.id === sched.employee_id);
+    const myEmpName = myEmp ? myEmp.name : sched.employee_id;
+    const storeName = (DATA.stores.find(s => s.id === sched.store_id) || {}).name || sched.store_id;
+    const shiftName = (DATA.shiftTypes.find(t => t.code === sched.shift_code) || {}).name || sched.shift_code;
+
+    modalCtx = {
+      mode: 'swap',
+      from_employee_id: sched.employee_id,
+      from_schedule_id: sched.id,
+      from_label: sched.date + ' · ' + storeName + ' · ' + shiftName + ' · ' + myEmpName
+    };
+
+    document.getElementById('modalTitle').textContent = '申請換班';
+    document.getElementById('modalSub').textContent = '與其他員工互換班次';
+    document.getElementById('swMine').textContent = modalCtx.from_label;
+
+    // 所有員工皆可選（包含目前沒班的人 — 因為支援讓班）
+    const empSel = document.getElementById('swEmployee');
+    empSel.innerHTML = '<option value="">— 選擇 —</option>' +
+      DATA.employees.filter(e => e.id !== sched.employee_id).map(e =>
+        '<option value="' + e.id + '">' + escapeHtml(e.name) + ' (' + e.id + ')</option>'
+      ).join('');
+    document.getElementById('swSchedule').innerHTML = '<option value="">— 請先選對方 —</option>';
+
+    document.getElementById('modalCreateForm').style.display = 'none';
+    document.getElementById('modalDeleteForm').style.display = 'none';
+    document.getElementById('modalBulkForm').style.display = 'none';
+    document.getElementById('modalConfirmAllForm').style.display = 'none';
+    document.getElementById('modalSwapListForm').style.display = 'none';
+    document.getElementById('modalSwapCreateForm').style.display = '';
+    document.getElementById('modal').classList.add('show');
+  }
+
+  function onSwapEmployeeChange(){
+    const empId = document.getElementById('swEmployee').value;
+    const sel = document.getElementById('swSchedule');
+    if (!empId){
+      sel.innerHTML = '<option value="">— 請先選對方 —</option>';
+      return;
+    }
+    // 第一個選項是「讓班」（單向轉移），其後列出對方所有現有班次（雙向換班）
+    const transferOpt = '<option value="">讓班（單向，不互換）</option>';
+    const swapOpts = DATA.schedules
+      .filter(s => s.employee_id === empId)
+      .sort((a,b) => String(a.date).localeCompare(String(b.date)))
+      .map(s => {
+        const storeName = (DATA.stores.find(x => x.id === s.store_id) || {}).name || s.store_id;
+        const shiftName = (DATA.shiftTypes.find(x => x.code === s.shift_code) || {}).name || s.shift_code;
+        return '<option value="' + s.id + '">換 → ' + s.date + ' · ' + escapeHtml(storeName) + ' · ' + escapeHtml(shiftName) + '</option>';
+      }).join('');
+    sel.innerHTML = transferOpt + swapOpts;
+  }
+
+  function submitSwapCreate(){
+    if (!modalCtx || modalCtx.mode !== 'swap') return;
+    const toEmp = document.getElementById('swEmployee').value;
+    const toSched = document.getElementById('swSchedule').value; // 空字串 = 讓班
+    if (!toEmp){
+      showToast('請選擇對方員工', true);
+      return;
+    }
+    // 先暫存 — closeModal 會把 modalCtx 清空
+    const fromEmp = modalCtx.from_employee_id;
+    const fromSched = modalCtx.from_schedule_id;
+    closeModal();
+    showToast('送出中...');
+    google.script.run
+      .withSuccessHandler(function(){
+        refreshData('已送出換班申請（待對方同意）');
+      })
+      .withFailureHandler(function(err){
+        showToast(err.message || '送出失敗', true);
+      })
+      .createSwapRequest({
+        from_employee_id: fromEmp,
+        from_schedule_id: fromSched,
+        to_employee_id: toEmp,
+        to_schedule_id: toSched
+      });
+  }
+
+  function openSwapsListModal(){
+    modalCtx = { mode: 'swapList' };
+    document.getElementById('modalTitle').textContent = '換班申請列表';
+    document.getElementById('modalSub').textContent = (DATA.openSwaps || []).length + ' 筆未結案';
+
+    renderSwapList();
+
+    document.getElementById('modalCreateForm').style.display = 'none';
+    document.getElementById('modalDeleteForm').style.display = 'none';
+    document.getElementById('modalBulkForm').style.display = 'none';
+    document.getElementById('modalConfirmAllForm').style.display = 'none';
+    document.getElementById('modalSwapCreateForm').style.display = 'none';
+    document.getElementById('modalSwapListForm').style.display = '';
+    document.getElementById('modal').classList.add('show');
+  }
+
+  function renderSwapList(){
+    const el = document.getElementById('swapListContent');
+    const swaps = DATA.openSwaps || [];
+    if (swaps.length === 0){
+      el.innerHTML = '<p style="text-align:center;color:#94a3b8;padding:32px">目前沒有未結案的換班申請</p>';
+      return;
+    }
+    const empName = id => {
+      const e = DATA.employees.find(x => x.id === id);
+      return e ? e.name : id;
+    };
+    const schedLabel = id => {
+      const s = DATA.schedules.find(x => x.id === id);
+      if (!s) return id + ' (已刪除)';
+      const storeName = (DATA.stores.find(x => x.id === s.store_id) || {}).name || s.store_id;
+      const shiftName = (DATA.shiftTypes.find(x => x.code === s.shift_code) || {}).name || s.shift_code;
+      return s.date + ' · ' + storeName + ' · ' + shiftName;
+    };
+    el.innerHTML = swaps.map(sw => {
+      const isTransfer = !sw.to_schedule_id;
+      const statusCls = sw.status === '待對方同意' ? 's-pending-counter'
+                      : sw.status === '待店長核可' ? 's-pending-manager' : '';
+      const typeLabel = isTransfer ? '讓班' : '換班';
+      const headerSymbol = isTransfer ? '→' : '↔';
+      const approveLabel = isTransfer ? '店長核可（執行讓班）' : '店長核可（執行互換）';
+      let actions = '';
+      if (sw.status === '待對方同意'){
+        actions =
+          '<button onclick="actSwap(\''+sw.id+'\',\'respond\',\'同意\')" class="primary">對方同意</button>' +
+          '<button onclick="actSwap(\''+sw.id+'\',\'respond\',\'駁回\')" class="danger">對方駁回</button>';
+      } else if (sw.status === '待店長核可'){
+        actions =
+          '<button onclick="actSwap(\''+sw.id+'\',\'approve\')" class="primary">' + approveLabel + '</button>' +
+          '<button onclick="actSwap(\''+sw.id+'\',\'reject\')" class="danger">店長駁回</button>';
+      }
+      const detail = isTransfer
+        ? escapeHtml(empName(sw.from_employee_id)) + ' 的「' + escapeHtml(schedLabel(sw.from_schedule_id)) +
+          '」讓給 <b>' + escapeHtml(empName(sw.to_employee_id)) + '</b>'
+        : escapeHtml(empName(sw.from_employee_id)) + ' 的：' + escapeHtml(schedLabel(sw.from_schedule_id)) + '<br>' +
+          escapeHtml(empName(sw.to_employee_id)) + ' 的：' + escapeHtml(schedLabel(sw.to_schedule_id));
+      return '<div class="swap-item">' +
+        '<div class="swap-header">' +
+          '<span><b>' + escapeHtml(empName(sw.from_employee_id)) + '</b> ' + headerSymbol +
+            ' <b>' + escapeHtml(empName(sw.to_employee_id)) + '</b>' +
+            ' <span style="font-size:10px;color:#7c3aed;margin-left:6px;font-family:ui-monospace,monospace">[' + typeLabel + ']</span></span>' +
+          '<span class="swap-status ' + statusCls + '">' + escapeHtml(sw.status) + '</span>' +
+        '</div>' +
+        '<div class="swap-detail">' + detail + '<br>' +
+          '<span style="color:#94a3b8;font-size:11px">' + escapeHtml(sw.requested_at) + ' 提出</span>' +
+        '</div>' +
+        '<div class="swap-actions">' + actions + '</div>' +
+        '</div>';
+    }).join('');
+  }
+
+  function actSwap(swapId, action, response){
+    showToast('處理中...');
+    let runner;
+    if (action === 'respond'){
+      runner = google.script.run.respondSwap(swapId, response);
+      // 注意：上面這行不會跑，需要 wrapper
+    }
+    // 直接用 chain 的方式：
+    const r = google.script.run
+      .withSuccessHandler(function(){
+        refreshData('換班動作完成');
+      })
+      .withFailureHandler(function(err){
+        showToast(err.message || '失敗', true);
+      });
+    if (action === 'respond') r.respondSwap(swapId, response);
+    else if (action === 'approve') r.approveSwap(swapId, '');
+    else if (action === 'reject') r.rejectSwap(swapId, '');
+  }
+
+  function updateSwapBadge(){
+    const badge = document.getElementById('swapBadge');
+    const n = (DATA.openSwaps || []).length;
+    if (n > 0){
+      badge.textContent = n;
+      badge.classList.add('has-pending');
+    } else {
+      badge.textContent = '';
+      badge.classList.remove('has-pending');
+    }
+  }
+
   function openConfirmAllModal(){
     modalCtx = { mode: 'confirmAll' };
     document.getElementById('modalTitle').textContent = '批次確認當月草稿';
@@ -812,6 +1076,7 @@
         DATA = newData;
         renderGrid();
         renderLegend();
+        updateSwapBadge();
         if (onDoneToast) showToast(onDoneToast);
       })
       .withFailureHandler(function(err){
@@ -935,6 +1200,7 @@
   renderMonthLabel();
   renderGrid();
   renderLegend();
+  updateSwapBadge();
 </script>
 
 </body>

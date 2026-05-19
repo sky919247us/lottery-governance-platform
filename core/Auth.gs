@@ -78,16 +78,18 @@ function pageCallback_(e) {
 }
 
 function pageSchedule_(e) {
-  const now = new Date();
-  const year = parseInt(e.parameter.year, 10) || now.getFullYear();
-  const month = parseInt(e.parameter.month, 10) || (now.getMonth() + 1);
-
-  const tpl = HtmlService.createTemplateFromFile('schedule');
-  tpl.data = getScheduleViewData(year, month);
-  tpl.webAppUrl = getWebAppUrl_();
-  return tpl.evaluate()
-    .setTitle('排班總覽 · ' + year + '/' + month)
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
+  // 身分驗證：要求 LINE 登入後的 session
+  const emp = getEmployeeFromSession_(e);
+  if (!emp) {
+    // Apps Script 沙盒禁用程式自動跳轉，改顯示登入按鈕讓使用者主動點
+    return pageHtml_(
+      '需要登入',
+      '<h2>需要登入</h2>' +
+      '<p>請先用 LINE 登入後再進入排班系統。</p>' +
+      '<p><a href="' + getWebAppUrl_() + '" target="_top" style="display:inline-block;background:#06c755;color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;font-weight:600">前往登入頁</a></p>'
+    );
+  }
+  return renderSchedulePage_(e.parameter.sid || '', emp, e);
 }
 
 function pageBindLanding_(e) {
@@ -120,17 +122,9 @@ function doLogin_(profile) {
       '<p style="color:#888;font-size:11px;word-break:break-all">LINE userId: ' + escapeHtml_(profile.userId) + '</p>'
     );
   }
-  return pageHtml_(
-    '登入成功',
-    '<h2>登入成功 ✅</h2>' +
-    '<p>哈囉 <b>' + escapeHtml_(emp[COL.EMPLOYEES.NAME]) + '</b>（' + emp[COL.EMPLOYEES.ID] + '）</p>' +
-    '<ul>' +
-    '<li>角色：' + escapeHtml_(emp[COL.EMPLOYEES.ROLE]) + '</li>' +
-    '<li>主店：' + escapeHtml_(emp[COL.EMPLOYEES.HOME_STORE]) + '</li>' +
-    '<li>狀態：' + escapeHtml_(emp[COL.EMPLOYEES.STATUS]) + '</li>' +
-    '</ul>' +
-    '<p style="color:#888;font-size:12px;margin-top:32px">本頁為 LINE 綁定驗證測試。打卡 / 排班介面將於 P2 上線。</p>'
-  );
+  // 建立 session，直接渲染排班頁（不重定向 — Apps Script iframe 禁用 programmatic top-level navigation）
+  const sid = createSession_(profile.userId);
+  return renderSchedulePage_(sid, emp, null);
 }
 
 function doBindWithToken_(bindToken, profile) {
@@ -168,14 +162,11 @@ function doBindWithToken_(bindToken, profile) {
   if (!updated) return pageError_('找不到員工：' + info.employee_id);
 
   markBindTokenUsed_(bindToken, profile.userId);
-
-  return pageHtml_(
-    '綁定完成',
-    '<h2>綁定完成 ✅</h2>' +
-    '<p><b>' + escapeHtml_(info.employee_name) + '</b>（' + info.employee_id + '）已成功綁定您的 LINE。</p>' +
-    '<p>下次直接用 LINE 登入即可，不需再用綁定連結。</p>' +
-    '<p style="color:#888;font-size:12px">LINE 名稱: ' + escapeHtml_(profile.displayName) + '</p>'
-  );
+  // 綁定成功後直接渲染排班頁
+  const sid = createSession_(profile.userId);
+  // 重新從 Sheet 取資料（剛綁完 line_user_id 才有值）
+  const empFresh = findEmployeeByLineId_(profile.userId);
+  return renderSchedulePage_(sid, empFresh || { [COL.EMPLOYEES.ID]: info.employee_id, [COL.EMPLOYEES.NAME]: info.employee_name, [COL.EMPLOYEES.ROLE]: 'staff', [COL.EMPLOYEES.HOME_STORE]: '' }, null);
 }
 
 function lineExchangeCode_(code) {
@@ -234,13 +225,66 @@ function getLineLoginCfg_() {
   return { channelId: String(id), channelSecret: String(secret) };
 }
 
+/** 建立登入 session（1 小時 TTL），回傳 session id */
+function createSession_(lineUserId) {
+  const sid = Utilities.getUuid().replace(/-/g, '');
+  CacheService.getScriptCache().put('sess_' + sid, lineUserId, 3600);
+  return sid;
+}
+
+/** 由 URL ?sid=xxx 解析回員工資料 */
+function getEmployeeFromSession_(e) {
+  const sid = e && e.parameter && e.parameter.sid;
+  if (!sid) return null;
+  const lineUserId = CacheService.getScriptCache().get('sess_' + sid);
+  if (!lineUserId) return null;
+  return findEmployeeByLineId_(lineUserId);
+}
+
+/** 渲染排班頁 — 由 pageSchedule_ 與 doLogin_/doBindWithToken_ 共用 */
+function renderSchedulePage_(sid, emp, e) {
+  const now = new Date();
+  const year = parseInt((e && e.parameter && e.parameter.year), 10) || now.getFullYear();
+  const month = parseInt((e && e.parameter && e.parameter.month), 10) || (now.getMonth() + 1);
+
+  const tpl = HtmlService.createTemplateFromFile('schedule');
+  tpl.data = getScheduleViewData(year, month);
+  tpl.webAppUrl = getWebAppUrl_();
+  tpl.sid = sid || '';
+  tpl.currentUser = {
+    id: emp[COL.EMPLOYEES.ID],
+    name: emp[COL.EMPLOYEES.NAME],
+    role: emp[COL.EMPLOYEES.ROLE],
+    home_store: emp[COL.EMPLOYEES.HOME_STORE]
+  };
+  // 預先算好導航 URL（避免在 iframe 內做程式式跨 frame 導航）
+  tpl.prevUrl = buildScheduleNavUrl_(year, month, -1, sid);
+  tpl.nextUrl = buildScheduleNavUrl_(year, month, 1, sid);
+  tpl.todayUrl = buildScheduleNavUrl_(now.getFullYear(), now.getMonth() + 1, 0, sid);
+  return tpl.evaluate()
+    .setTitle('排班總覽 · ' + year + '/' + month)
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
+}
+
+function buildScheduleNavUrl_(year, month, delta, sid) {
+  let y = year, m = month + delta;
+  if (m < 1) { m = 12; y--; }
+  if (m > 12) { m = 1; y++; }
+  let url = getWebAppUrl_() + '?action=schedule&year=' + y + '&month=' + m;
+  if (sid) url += '&sid=' + encodeURIComponent(sid);
+  return url;
+}
+
 function getWebAppUrl_() {
-  // 優先使用 Settings 內手動設定的 production /exec URL
-  // 原因：ScriptApp.getService().getUrl() 從編輯器執行時會回傳 /dev URL，
-  //       /dev 只有 owner 能存取，匿名訪客會碰 Drive 權限錯誤。
+  // 優先：當前執行環境的真實 deployment URL（Web App context 會回 /exec）
+  // 若是從編輯器執行（會回 /dev），fallback 到 Settings 內手動設定的 /exec URL
+  try {
+    const live = ScriptApp.getService().getUrl();
+    if (live && live.indexOf('/exec') > 0) return live;
+  } catch (e) {}
   const stored = getSetting_('web_app_url');
   if (stored) return String(stored).trim();
-  return ScriptApp.getService().getUrl();
+  return '';
 }
 
 function getCallbackUrl_() {

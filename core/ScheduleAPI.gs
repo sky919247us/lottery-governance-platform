@@ -25,7 +25,8 @@ function getScheduleViewData(year, month) {
     shiftTypes: getShiftTypesForViewCached_(),
     schedules: getSchedulesForMonth_(y, m),
     holidays: holidays,
-    dayNotes: buildDayNotesForMonth_(holidays)
+    dayNotes: buildDayNotesForMonth_(holidays),
+    openSwaps: getOpenSwapsForYear_(y)
   };
 }
 
@@ -651,6 +652,266 @@ function bulkLoadDefaults(year, month, storeFilter, status) {
       schedSheet.getRange(startRow, 1, newRows.length, headers.length).setValues(newRows);
     }
     return { ok: true, created: newRows.length, skipped: skipped };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ============================================================================
+// 換班申請流程
+// ============================================================================
+
+/**
+ * 建立換班 / 讓班申請
+ *   - 雙向換班：from_schedule_id + to_schedule_id 都有 → 核可後兩人班次互換
+ *   - 單向讓班：只有 from_schedule_id → 核可後 from_schedule 的員工換成對方（對方原本不必有班）
+ */
+function createSwapRequest(payload) {
+  if (!payload || typeof payload !== 'object') throw new Error('payload 必填');
+  const fromEmp = String(payload.from_employee_id || '').trim();
+  const toEmp = String(payload.to_employee_id || '').trim();
+  const fromSched = String(payload.from_schedule_id || '').trim();
+  const toSched = String(payload.to_schedule_id || '').trim();
+  if (!fromEmp || !toEmp) throw new Error('雙方員工必填');
+  if (fromEmp === toEmp) throw new Error('不能跟自己換班');
+  if (!fromSched) throw new Error('申請人班次必填');
+
+  const yearMatch = /^SCH-(\d{4})/.exec(fromSched);
+  if (!yearMatch) throw new Error('班次 ID 格式錯誤');
+  const year = yearMatch[1];
+
+  const ass = getAttendanceSpreadsheet_();
+  const sheet = ass.getSheetByName(attendanceSheetName_(ATTENDANCE_PREFIX.SWAP_REQUESTS, year));
+  if (!sheet) throw new Error('換班申請_' + year + ' 分頁不存在');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(5000);
+  try {
+    const lastCol = sheet.getLastColumn();
+    const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+
+    const swapId = 'SWP-' + Utilities.formatDate(new Date(), TIMEZONE, 'yyyyMMddHHmmss') +
+                   '-' + Math.floor(Math.random() * 1000);
+    const now = new Date();
+
+    const row = headers.map(function () { return ''; });
+    row[headers.indexOf(COL.SWAP_REQUESTS.SWAP_ID)] = swapId;
+    row[headers.indexOf(COL.SWAP_REQUESTS.FROM_EMPLOYEE_ID)] = fromEmp;
+    row[headers.indexOf(COL.SWAP_REQUESTS.TO_EMPLOYEE_ID)] = toEmp;
+    row[headers.indexOf(COL.SWAP_REQUESTS.FROM_SCHEDULE_ID)] = fromSched;
+    row[headers.indexOf(COL.SWAP_REQUESTS.TO_SCHEDULE_ID)] = toSched;
+    row[headers.indexOf(COL.SWAP_REQUESTS.STATUS)] = '待對方同意';
+    row[headers.indexOf(COL.SWAP_REQUESTS.REQUESTED_AT)] = now;
+
+    sheet.appendRow(row);
+    return { ok: true, swap_id: swapId };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 對方回應：同意 → 待店長核可；駁回 → 已駁回 */
+function respondSwap(swapId, response) {
+  if (!swapId) throw new Error('swap_id 必填');
+  if (response !== '同意' && response !== '駁回') throw new Error('response 應為 同意/駁回');
+  const year = parseSwapYear_(swapId);
+  return updateSwapRow_(year, swapId, function (row, headers) {
+    const statusIdx = headers.indexOf(COL.SWAP_REQUESTS.STATUS);
+    if (row[statusIdx] !== '待對方同意') throw new Error('此申請狀態為「' + row[statusIdx] + '」，無法回應');
+    row[statusIdx] = response === '同意' ? '待店長核可' : '已駁回';
+    row[headers.indexOf(COL.SWAP_REQUESTS.COUNTERPARTY_RESPONDED_AT)] = new Date();
+    return row;
+  });
+}
+
+/** 店長核可：真正執行兩班互換，或駁回 */
+function approveSwap(swapId, approverId) {
+  if (!swapId) throw new Error('swap_id 必填');
+  const year = parseSwapYear_(swapId);
+
+  const ass = getAttendanceSpreadsheet_();
+  const swapSheet = ass.getSheetByName(attendanceSheetName_(ATTENDANCE_PREFIX.SWAP_REQUESTS, year));
+  if (!swapSheet) throw new Error('換班申請_' + year + ' 分頁不存在');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(8000);
+  try {
+    const lastCol = swapSheet.getLastColumn();
+    const headers = swapSheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    const idIdx = headers.indexOf(COL.SWAP_REQUESTS.SWAP_ID);
+    const lastRow = swapSheet.getLastRow();
+    if (lastRow <= 1) throw new Error('找不到此申請');
+    const ids = swapSheet.getRange(2, idIdx + 1, lastRow - 1, 1).getValues();
+    let rowIdx = -1;
+    for (let i = 0; i < ids.length; i++) {
+      if (ids[i][0] === swapId) { rowIdx = i + 2; break; }
+    }
+    if (rowIdx < 0) throw new Error('找不到此申請：' + swapId);
+
+    const row = swapSheet.getRange(rowIdx, 1, 1, lastCol).getValues()[0];
+    const statusIdx = headers.indexOf(COL.SWAP_REQUESTS.STATUS);
+    if (row[statusIdx] !== '待店長核可') {
+      throw new Error('此申請狀態為「' + row[statusIdx] + '」，無法核可');
+    }
+
+    const fromEmp = row[headers.indexOf(COL.SWAP_REQUESTS.FROM_EMPLOYEE_ID)];
+    const toEmp = row[headers.indexOf(COL.SWAP_REQUESTS.TO_EMPLOYEE_ID)];
+    const fromSchedId = row[headers.indexOf(COL.SWAP_REQUESTS.FROM_SCHEDULE_ID)];
+    const toSchedId = row[headers.indexOf(COL.SWAP_REQUESTS.TO_SCHEDULE_ID)];
+
+    // updateSchedule 已含 schedule_id 重算 + 衝突檢查
+    updateSchedule(fromSchedId, { employee_id: toEmp });
+    if (toSchedId) {
+      // 雙向換班：對方的班也換成 fromEmp
+      updateSchedule(toSchedId, { employee_id: fromEmp });
+    }
+    // 否則是單向讓班：fromEmp 失去班次，toEmp 拿到 fromSchedId
+
+    row[statusIdx] = '已生效';
+    row[headers.indexOf(COL.SWAP_REQUESTS.APPROVER_ID)] = approverId || '';
+    row[headers.indexOf(COL.SWAP_REQUESTS.APPROVED_AT)] = new Date();
+    swapSheet.getRange(rowIdx, 1, 1, lastCol).setValues([row]);
+
+    return { ok: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 店長駁回（任何尚未生效的申請皆可駁回） */
+function rejectSwap(swapId, approverId) {
+  if (!swapId) throw new Error('swap_id 必填');
+  const year = parseSwapYear_(swapId);
+  return updateSwapRow_(year, swapId, function (row, headers) {
+    const statusIdx = headers.indexOf(COL.SWAP_REQUESTS.STATUS);
+    if (row[statusIdx] === '已生效' || row[statusIdx] === '已駁回') {
+      throw new Error('此申請已結案，無法駁回');
+    }
+    row[statusIdx] = '已駁回';
+    row[headers.indexOf(COL.SWAP_REQUESTS.APPROVER_ID)] = approverId || '';
+    row[headers.indexOf(COL.SWAP_REQUESTS.APPROVED_AT)] = new Date();
+    return row;
+  });
+}
+
+/** 取得當年所有尚未結案的換班申請 */
+function getOpenSwapsForYear_(year) {
+  const ass = getAttendanceSpreadsheet_();
+  const sheet = ass.getSheetByName(attendanceSheetName_(ATTENDANCE_PREFIX.SWAP_REQUESTS, year));
+  if (!sheet) return [];
+  const data = sheet.getDataRange().getValues();
+  if (data.length < 2) return [];
+  const headers = data[0];
+  const out = [];
+  for (let i = 1; i < data.length; i++) {
+    const status = data[i][headers.indexOf(COL.SWAP_REQUESTS.STATUS)];
+    if (status === '已生效' || status === '已駁回') continue;
+    const requestedAt = data[i][headers.indexOf(COL.SWAP_REQUESTS.REQUESTED_AT)];
+    out.push({
+      id: data[i][headers.indexOf(COL.SWAP_REQUESTS.SWAP_ID)],
+      from_employee_id: data[i][headers.indexOf(COL.SWAP_REQUESTS.FROM_EMPLOYEE_ID)],
+      to_employee_id: data[i][headers.indexOf(COL.SWAP_REQUESTS.TO_EMPLOYEE_ID)],
+      from_schedule_id: data[i][headers.indexOf(COL.SWAP_REQUESTS.FROM_SCHEDULE_ID)],
+      to_schedule_id: data[i][headers.indexOf(COL.SWAP_REQUESTS.TO_SCHEDULE_ID)],
+      status: status,
+      requested_at: requestedAt instanceof Date
+        ? Utilities.formatDate(requestedAt, TIMEZONE, 'MM/dd HH:mm')
+        : String(requestedAt || '')
+    });
+  }
+  return out;
+}
+
+/** 給前端用：列出當前可動作的所有換班申請（簡化版，從當前年抓） */
+function listOpenSwaps(year) {
+  return getOpenSwapsForYear_(parseInt(year, 10) || new Date().getFullYear());
+}
+
+/** 診斷：印出 換班申請_2026 sheet 的 headers 和 COL 常數對應狀況 */
+function DebugSwap2026() {
+  const ass = getAttendanceSpreadsheet_();
+  const sheetName = attendanceSheetName_(ATTENDANCE_PREFIX.SWAP_REQUESTS, '2026');
+  const sheet = ass.getSheetByName(sheetName);
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert('Sheet 不存在：' + sheetName);
+    return;
+  }
+  const lastCol = sheet.getLastColumn();
+  const lastRow = sheet.getLastRow();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+
+  const keys = ['SWAP_ID','FROM_EMPLOYEE_ID','TO_EMPLOYEE_ID','FROM_SCHEDULE_ID',
+    'TO_SCHEDULE_ID','STATUS','REQUESTED_AT'];
+  let info = 'Sheet: ' + sheetName + '\n';
+  info += 'lastCol=' + lastCol + ', lastRow=' + lastRow + '\n\n';
+  info += 'Headers (從 sheet 讀)：\n';
+  headers.forEach((h, i) => { info += '  [' + i + '] "' + h + '" (len ' + String(h).length + ')\n'; });
+  info += '\nCOL.SWAP_REQUESTS 對應檢查：\n';
+  keys.forEach(k => {
+    const v = COL.SWAP_REQUESTS[k];
+    const idx = headers.indexOf(v);
+    info += '  ' + k + ' = "' + v + '" → indexOf=' + idx + (idx < 0 ? ' ✗' : ' ✓') + '\n';
+  });
+
+  SpreadsheetApp.getUi().alert(info);
+}
+
+/** 診斷：實際寫一筆測試 row 進去看是否成功 */
+function TestSwapWrite() {
+  const ass = getAttendanceSpreadsheet_();
+  const sheet = ass.getSheetByName(attendanceSheetName_(ATTENDANCE_PREFIX.SWAP_REQUESTS, '2026'));
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert('Sheet 不存在');
+    return;
+  }
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  const row = headers.map(() => '');
+  row[headers.indexOf(COL.SWAP_REQUESTS.SWAP_ID)] = 'TEST-' + Date.now();
+  row[headers.indexOf(COL.SWAP_REQUESTS.FROM_EMPLOYEE_ID)] = 'TEST-A';
+  row[headers.indexOf(COL.SWAP_REQUESTS.TO_EMPLOYEE_ID)] = 'TEST-B';
+  row[headers.indexOf(COL.SWAP_REQUESTS.STATUS)] = '測試';
+  const beforeLast = sheet.getLastRow();
+  sheet.appendRow(row);
+  SpreadsheetApp.flush();
+  const afterLast = sheet.getLastRow();
+  SpreadsheetApp.getUi().alert(
+    'before lastRow=' + beforeLast + ', after=' + afterLast + '\n' +
+    'row=' + JSON.stringify(row)
+  );
+}
+
+function parseSwapYear_(swapId) {
+  // SWP-yyyyMMddHHmmss-NNN
+  const m = /^SWP-(\d{4})/.exec(String(swapId));
+  if (!m) throw new Error('swap_id 格式錯誤');
+  return m[1];
+}
+
+function updateSwapRow_(year, swapId, mutator) {
+  const ass = getAttendanceSpreadsheet_();
+  const sheet = ass.getSheetByName(attendanceSheetName_(ATTENDANCE_PREFIX.SWAP_REQUESTS, year));
+  if (!sheet) throw new Error('換班申請_' + year + ' 分頁不存在');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(5000);
+  try {
+    const lastCol = sheet.getLastColumn();
+    const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    const idIdx = headers.indexOf(COL.SWAP_REQUESTS.SWAP_ID);
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) throw new Error('找不到此申請');
+    const ids = sheet.getRange(2, idIdx + 1, lastRow - 1, 1).getValues();
+    for (let i = 0; i < ids.length; i++) {
+      if (ids[i][0] === swapId) {
+        const rowIdx = i + 2;
+        const row = sheet.getRange(rowIdx, 1, 1, lastCol).getValues()[0];
+        const newRow = mutator(row, headers);
+        sheet.getRange(rowIdx, 1, 1, lastCol).setValues([newRow]);
+        return { ok: true };
+      }
+    }
+    throw new Error('找不到此申請：' + swapId);
   } finally {
     lock.releaseLock();
   }
