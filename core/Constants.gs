@@ -17,9 +17,11 @@ const SHEET_NAMES = {
   BIND_TOKENS: '綁定連結',
   HOLIDAYS: '假日表',
   GLOSSARY: '欄位對照表',
+  LEAVE_PERIODS: '留職停薪紀錄',
   // Attendance Sheet
   SHIFT_TYPES: '班別',
-  DEFAULT_SCHEDULE: '預設排班'
+  DEFAULT_SCHEDULE: '預設排班',
+  LEAVE_REQUESTS: '請假紀錄'
   // 年度分頁透過 attendanceSheetName_(prefix, year) 動態組合
 };
 
@@ -135,6 +137,33 @@ const COL = {
     SHIFT_CODE: '班別代號',
     EMPLOYEE_ID: '員工編號',
     NOTE: '備註'
+  },
+  LEAVE_PERIODS: {
+    LEAVE_ID: '留停ID',
+    EMPLOYEE_ID: '員工編號',
+    TYPE: '類型',
+    START_DATE: '起始日',
+    END_DATE: '復職日',
+    DEDUCT_TENURE: '扣除年資',
+    APPROVED_BY: '核准人',
+    APPROVED_AT: '核准時間',
+    NOTE: '備註'
+  },
+  LEAVE_REQUESTS: {
+    REQUEST_ID: '請假ID',
+    EMPLOYEE_ID: '員工編號',
+    TYPE: '假別',
+    START_DATE: '起始日',
+    END_DATE: '結束日',
+    START_TIME: '起始時間',
+    END_TIME: '結束時間',
+    DAYS: '天數',
+    HOURS: '時數',
+    REASON: '事由',
+    STATUS: '狀態',
+    APPROVER_ID: '簽核人',
+    APPROVED_AT: '簽核時間',
+    APPROVER_COMMENT: '簽核備註'
   },
   SCHEDULE: {
     SCHEDULE_ID: '排班ID',

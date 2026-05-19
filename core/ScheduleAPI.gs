@@ -343,6 +343,79 @@ function createSchedule(payload) {
   }
 }
 
+/**
+ * 完整更新單筆排班：員工 / 時間 / 跑班 / 狀態。
+ *
+ * updates 物件可含任一個或全部：
+ *   employee_id, start_time, end_time, pay_mode_override, hourly_rate_override, status
+ *
+ * 若 employee_id 改變，schedule_id 會重算（格式 SCH-DATE-EMP-SHIFT）並檢查衝突。
+ * 回傳 { ok, schedule_id } — schedule_id 可能與輸入不同（已變更）。
+ */
+function updateSchedule(scheduleId, updates) {
+  if (!scheduleId) throw new Error('schedule_id 必填');
+  if (!updates || typeof updates !== 'object') throw new Error('updates 必填');
+
+  const m = /^SCH-(\d{4})(\d{2})(\d{2})-(.+?)-(MORNING|EVENING|NIGHT)$/.exec(String(scheduleId));
+  if (!m) throw new Error('schedule_id 格式錯誤：' + scheduleId);
+  const year = m[1];
+  const dateStr = m[1] + '-' + m[2] + '-' + m[3];
+  const oldEmpId = m[4];
+  const shiftCode = m[5];
+
+  const ass = getAttendanceSpreadsheet_();
+  const sheet = ass.getSheetByName(attendanceSheetName_(ATTENDANCE_PREFIX.SCHEDULE, year));
+  if (!sheet) throw new Error('排班_' + year + ' 分頁不存在');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(5000);
+  try {
+    const lastCol = sheet.getLastColumn();
+    const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    const idColIdx = headers.indexOf(COL.SCHEDULE.SCHEDULE_ID);
+
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) throw new Error('找不到排班');
+    const ids = sheet.getRange(2, idColIdx + 1, lastRow - 1, 1).getValues();
+    let rowIdx = -1;
+    for (let i = 0; i < ids.length; i++) {
+      if (ids[i][0] === scheduleId) { rowIdx = i + 2; break; }
+    }
+    if (rowIdx < 0) throw new Error('找不到排班：' + scheduleId);
+
+    const rowValues = sheet.getRange(rowIdx, 1, 1, lastCol).getValues()[0];
+
+    let newId = scheduleId;
+    if (updates.employee_id && updates.employee_id !== oldEmpId) {
+      newId = 'SCH-' + dateStr.replace(/-/g, '') + '-' + updates.employee_id + '-' + shiftCode;
+      for (let i = 0; i < ids.length; i++) {
+        if (ids[i][0] === newId && (i + 2) !== rowIdx) {
+          throw new Error(updates.employee_id + ' 在 ' + dateStr + ' 的此班次已存在');
+        }
+      }
+      rowValues[idColIdx] = newId;
+      rowValues[headers.indexOf(COL.SCHEDULE.EMPLOYEE_ID)] = updates.employee_id;
+    }
+
+    if (updates.start_time !== undefined)
+      rowValues[headers.indexOf(COL.SCHEDULE.START_TIME)] = updates.start_time;
+    if (updates.end_time !== undefined)
+      rowValues[headers.indexOf(COL.SCHEDULE.END_TIME)] = updates.end_time;
+    if (updates.pay_mode_override !== undefined)
+      rowValues[headers.indexOf(COL.SCHEDULE.PAY_MODE_OVERRIDE)] = updates.pay_mode_override;
+    if (updates.hourly_rate_override !== undefined)
+      rowValues[headers.indexOf(COL.SCHEDULE.HOURLY_RATE_OVERRIDE)] = updates.hourly_rate_override;
+    if (updates.status !== undefined)
+      rowValues[headers.indexOf(COL.SCHEDULE.STATUS)] = updates.status;
+    rowValues[headers.indexOf(COL.SCHEDULE.UPDATED_AT)] = new Date();
+
+    sheet.getRange(rowIdx, 1, 1, lastCol).setValues([rowValues]);
+    return { ok: true, schedule_id: newId };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /** 切換單筆排班狀態（草稿 ↔ 已確認） */
 function updateScheduleStatus(scheduleId, newStatus) {
   if (!scheduleId) throw new Error('schedule_id 必填');

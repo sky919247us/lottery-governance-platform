@@ -87,6 +87,8 @@
       animation:pulse 1.2s ease-in-out infinite alternate;
     }
     @keyframes pulse{from{opacity:.45}to{opacity:.75}}
+    /* 跑班標記：色卡後加 $ 符號 */
+    .emp-tag.hourly::after{content:' $';opacity:.7;font-weight:700}
     .note-row td{
       background:#fefce8;height:auto;padding:6px 4px;font-size:11px;
       color:#854d0e;line-height:1.3;
@@ -117,11 +119,33 @@
       text-transform:uppercase;letter-spacing:.1em;margin:0 0 12px;
       font-family:ui-monospace,SFMono-Regular,monospace;
     }
-    .legend-grid{display:flex;flex-wrap:wrap;gap:8px}
-    .legend-item{
-      display:inline-flex;align-items:center;gap:6px;
-      padding:4px 10px;border-radius:3px;font-size:12px;
+    .stats-table{
+      width:100%;border-collapse:collapse;font-size:12px;
     }
+    .stats-table th{
+      text-align:right;padding:6px 8px;font-weight:600;
+      color:#64748b;border-bottom:1px solid #e5e7eb;
+      font-family:ui-monospace,SFMono-Regular,monospace;
+      text-transform:uppercase;font-size:10px;letter-spacing:.05em;
+    }
+    .stats-table th:first-child,.stats-table th:nth-child(2){text-align:left}
+    .stats-table td{
+      padding:6px 8px;border-bottom:1px solid #f1f5f9;text-align:right;
+      font-variant-numeric:tabular-nums;
+    }
+    .stats-table td:first-child{
+      width:12px;padding-right:0;
+    }
+    .stats-table .swatch{
+      display:inline-block;width:14px;height:14px;border-radius:3px;
+      vertical-align:middle;border:1px solid rgba(0,0,0,.08);
+    }
+    .stats-table td:nth-child(2){text-align:left;font-weight:600;color:#0f172a}
+    .stats-table .id{color:#94a3b8;font-weight:400;font-size:11px;margin-left:4px}
+    .stats-table .zero{color:#cbd5e1}
+    .stats-table .draft-count{color:#f59e0b;font-weight:600}
+    .stats-table tr.no-shift td{color:#cbd5e1}
+    .stats-table tr:hover{background:#f8fafc}
     .save-toast{
       position:fixed;bottom:20px;right:20px;
       background:#0f172a;color:#fff;padding:10px 16px;border-radius:6px;
@@ -203,8 +227,8 @@
   <table class="grid" id="grid"></table>
 
   <div class="legend">
-    <h2>EMPLOYEES · 員工色卡</h2>
-    <div class="legend-grid" id="legend"></div>
+    <h2>EMPLOYEES · 員工本月統計</h2>
+    <table class="stats-table" id="statsTable"></table>
   </div>
 </div>
 
@@ -236,14 +260,40 @@
       </div>
     </div>
     <div id="modalDeleteForm" style="display:none">
-      <div class="form-row"><label>員工</label><span class="val" id="dEmpName"></span></div>
       <div class="form-row"><label>日期</label><span class="val" id="dDate"></span></div>
       <div class="form-row"><label>班別</label><span class="val" id="dShift"></span></div>
-      <div class="form-row"><label>狀態</label><span class="val" id="dStatus"></span></div>
+      <div class="form-row">
+        <label>員工</label>
+        <select id="eEmployee"></select>
+      </div>
+      <div class="form-row">
+        <label>開始</label>
+        <input type="text" id="eStart" placeholder="HH:mm" style="width:80px;flex:none">
+        <label style="width:auto">結束</label>
+        <input type="text" id="eEnd" placeholder="HH:mm" style="width:80px;flex:none">
+      </div>
+      <div class="form-row">
+        <label>跑班</label>
+        <label style="font-size:12px;color:#475569;font-weight:400;width:auto">
+          <input type="checkbox" id="eHourly" onchange="onHourlyToggle()"> 按時薪結算（不併入月薪）
+        </label>
+      </div>
+      <div class="form-row" id="eRateRow" style="display:none">
+        <label>時薪</label>
+        <input type="text" id="eRate" placeholder="200" style="width:80px;flex:none">
+        <span style="font-size:11px;color:#94a3b8">元/小時</span>
+      </div>
+      <div class="form-row">
+        <label>狀態</label>
+        <select id="eStatus">
+          <option value="草稿">草稿</option>
+          <option value="已確認">已確認</option>
+        </select>
+      </div>
       <div class="actions" style="flex-wrap:wrap">
         <button onclick="closeModal()">取消</button>
-        <button class="danger" onclick="submitDelete()">刪除排班</button>
-        <button class="primary" id="toggleStatusBtn" onclick="submitToggleStatus()"></button>
+        <button class="danger" onclick="submitDelete()">刪除</button>
+        <button class="primary" onclick="submitUpdate()">儲存變更</button>
       </div>
     </div>
     <div id="modalConfirmAllForm" style="display:none">
@@ -366,8 +416,12 @@
             let cls = '';
             if (s._pending) cls += ' pending';
             else if (s.status === '草稿') cls += ' draft';
+            if (s.pay_override === 'hourly') cls += ' hourly';
+            const titleParts = [s.status || ''];
+            if (s.pay_override === 'hourly') titleParts.push('跑班');
+            if (s._pending) titleParts.push('儲存中');
             cellHtml += '<span class="emp-tag' + cls + '" style="background:' + color + '" title="' +
-              escapeHtml(s.status || '') + (s._pending ? ' (儲存中)' : '') + '">' +
+              escapeHtml(titleParts.filter(x=>x).join(' · ')) + '">' +
               escapeHtml(empName) + '</span>';
             schedIdAttr = s.id;
             empNameAttr = empName;
@@ -473,16 +527,73 @@
   }
 
   function renderLegend(){
-    const el = document.getElementById('legend');
+    const tbl = document.getElementById('statsTable');
     if (DATA.employees.length === 0){
-      el.innerHTML = '<span style="color:#94a3b8;font-size:12px">尚無在職員工</span>';
+      tbl.innerHTML = '<tr><td colspan="14" style="color:#94a3b8;font-size:12px;text-align:center;padding:24px">尚無在職員工</td></tr>';
       return;
     }
-    el.innerHTML = DATA.employees.map(e =>
-      '<span class="legend-item" style="background:' + e.color + '">' +
-        escapeHtml(e.name) + ' <span style="color:#475569;font-size:11px">(' +
-        escapeHtml(e.id) + ')</span></span>'
-    ).join('');
+
+    const counts = {};
+    const workedDates = {}; // 用於計算「休」：不重複日數
+    DATA.employees.forEach(e => {
+      counts[e.id] = { total:0, MORNING:0, EVENING:0, NIGHT:0, confirmed:0, draft:0 };
+      workedDates[e.id] = {};
+    });
+    const monthStr = String(DATA.month).padStart(2,'0');
+    const prefix = DATA.year + '-' + monthStr;
+    DATA.schedules.forEach(s => {
+      if (String(s.date).indexOf(prefix) !== 0) return;
+      const c = counts[s.employee_id];
+      if (!c) return;
+      c.total++;
+      if (c[s.shift_code] !== undefined) c[s.shift_code]++;
+      if (s.status === '已確認') c.confirmed++;
+      else if (s.status === '草稿') c.draft++;
+      if (workedDates[s.employee_id]) workedDates[s.employee_id][s.date] = true;
+    });
+
+    const daysInMonth = new Date(DATA.year, DATA.month, 0).getDate();
+
+    const z = n => n === 0
+      ? '<span class="zero">0</span>'
+      : String(n);
+    const draftFmt = n => n === 0
+      ? '<span class="zero">0</span>'
+      : '<span class="draft-count">' + n + '</span>';
+    // 「—」placeholder：待請假模組上線
+    const pending = '<span class="zero" title="待請假模組上線">—</span>';
+
+    const head = '<thead><tr>' +
+      '<th></th><th>員工</th>' +
+      '<th>班數</th><th>早</th><th>晚</th><th>大夜</th>' +
+      '<th>已確認</th><th>草稿</th>' +
+      '<th>休</th><th>事</th><th>病</th><th>其他</th><th>特</th><th>餘特</th>' +
+      '</tr></thead>';
+
+    const rows = DATA.employees.map(e => {
+      const c = counts[e.id];
+      const workedCount = Object.keys(workedDates[e.id] || {}).length;
+      const rest = daysInMonth - workedCount;
+      const noShift = c.total === 0;
+      return '<tr' + (noShift ? ' class="no-shift"' : '') + '>' +
+        '<td><span class="swatch" style="background:' + e.color + '"></span></td>' +
+        '<td>' + escapeHtml(e.name) + '<span class="id">' + escapeHtml(e.id) + '</span></td>' +
+        '<td>' + z(c.total) + '</td>' +
+        '<td>' + z(c.MORNING) + '</td>' +
+        '<td>' + z(c.EVENING) + '</td>' +
+        '<td>' + z(c.NIGHT) + '</td>' +
+        '<td>' + z(c.confirmed) + '</td>' +
+        '<td>' + draftFmt(c.draft) + '</td>' +
+        '<td>' + z(rest) + '</td>' +
+        '<td>' + pending + '</td>' +
+        '<td>' + pending + '</td>' +
+        '<td>' + pending + '</td>' +
+        '<td>' + pending + '</td>' +
+        '<td>' + pending + '</td>' +
+        '</tr>';
+    }).join('');
+
+    tbl.innerHTML = head + '<tbody>' + rows + '</tbody>';
   }
 
   function navMonth(delta){
@@ -533,33 +644,40 @@
   }
 
   function openDeleteModal(td){
-    const status = td.dataset.status || '';
+    const schedId = td.dataset.schedId;
+    const sched = DATA.schedules.find(s => s.id === schedId);
+    if (!sched){ showToast('找不到排班', true); return; }
+
     modalCtx = {
       mode: 'manage',
-      sched_id: td.dataset.schedId,
-      date: td.dataset.date,
+      sched_id: schedId,
+      orig: JSON.parse(JSON.stringify(sched)), // for rollback
+      date: sched.date,
+      shift_code: sched.shift_code,
       shift_name: td.dataset.shiftName,
-      emp_name: td.dataset.empName,
-      store_name: td.dataset.storeName,
-      status: status
+      store_id: sched.store_id,
+      store_name: td.dataset.storeName
     };
-    document.getElementById('modalTitle').textContent = '管理排班';
-    document.getElementById('modalSub').textContent = modalCtx.store_name;
-    document.getElementById('dEmpName').textContent = modalCtx.emp_name;
-    document.getElementById('dDate').textContent = modalCtx.date;
-    document.getElementById('dShift').textContent = modalCtx.shift_name;
-    document.getElementById('dStatus').textContent = status || '(未知)';
 
-    const btn = document.getElementById('toggleStatusBtn');
-    if (status === '草稿'){
-      btn.textContent = '✓ 轉為已確認';
-      btn.style.display = '';
-    } else if (status === '已確認'){
-      btn.textContent = '✎ 轉回草稿';
-      btn.style.display = '';
-    } else {
-      btn.style.display = 'none';
-    }
+    document.getElementById('modalTitle').textContent = '管理排班';
+    document.getElementById('modalSub').textContent =
+      sched.date + ' · ' + td.dataset.storeName + ' · ' + td.dataset.shiftName;
+    document.getElementById('dDate').textContent = sched.date;
+    document.getElementById('dShift').textContent = td.dataset.shiftName;
+
+    const empSel = document.getElementById('eEmployee');
+    empSel.innerHTML = DATA.employees.map(e =>
+      '<option value="' + e.id + '"' + (e.id === sched.employee_id ? ' selected' : '') +
+      '>' + escapeHtml(e.name) + ' (' + e.id + ')</option>'
+    ).join('');
+
+    document.getElementById('eStart').value = sched.start_time || '';
+    document.getElementById('eEnd').value = sched.end_time || '';
+    const isHourly = sched.pay_override === 'hourly';
+    document.getElementById('eHourly').checked = isHourly;
+    document.getElementById('eRateRow').style.display = isHourly ? '' : 'none';
+    document.getElementById('eRate').value = sched.hourly_rate_override || '';
+    document.getElementById('eStatus').value = sched.status || '草稿';
 
     document.getElementById('modalCreateForm').style.display = 'none';
     document.getElementById('modalBulkForm').style.display = 'none';
@@ -568,35 +686,66 @@
     document.getElementById('modal').classList.add('show');
   }
 
-  function submitToggleStatus(){
+  function onHourlyToggle(){
+    const isHourly = document.getElementById('eHourly').checked;
+    document.getElementById('eRateRow').style.display = isHourly ? '' : 'none';
+    if (isHourly && !document.getElementById('eRate').value){
+      document.getElementById('eRate').value = '200';
+    }
+  }
+
+  function submitUpdate(){
     if (!modalCtx || modalCtx.mode !== 'manage') return;
     const schedId = modalCtx.sched_id;
-    const next = modalCtx.status === '草稿' ? '已確認' : '草稿';
-
-    // 樂觀更新
-    closeModal();
     const sched = DATA.schedules.find(s => s.id === schedId);
-    const oldStatus = sched ? sched.status : null;
-    if (sched){
-      sched.status = next;
-      sched._pending = true;
-    }
+    if (!sched){ showToast('找不到排班', true); return; }
+
+    const newEmp = document.getElementById('eEmployee').value;
+    const newStart = document.getElementById('eStart').value.trim();
+    const newEnd = document.getElementById('eEnd').value.trim();
+    const isHourly = document.getElementById('eHourly').checked;
+    const newRate = isHourly ? document.getElementById('eRate').value.trim() : '';
+    const newStatus = document.getElementById('eStatus').value;
+
+    const updates = {
+      employee_id: newEmp,
+      start_time: newStart,
+      end_time: newEnd,
+      pay_mode_override: isHourly ? 'hourly' : '',
+      hourly_rate_override: isHourly && newRate ? parseFloat(newRate) : '',
+      status: newStatus
+    };
+
+    // 樂觀更新 — modal 立即關，DATA 立即更新，畫面立即重繪
+    closeModal();
+    const oldSnapshot = JSON.parse(JSON.stringify(sched));
+    sched.employee_id = newEmp;
+    sched.start_time = newStart;
+    sched.end_time = newEnd;
+    sched.pay_override = isHourly ? 'hourly' : '';
+    sched.status = newStatus;
+    sched._pending = true;
     renderGrid();
+    renderLegend();
 
     google.script.run
-      .withSuccessHandler(function(){
-        if (sched){ delete sched._pending; }
+      .withSuccessHandler(function(result){
+        // 若 employee_id 變了，server 會回傳新的 schedule_id
+        if (result.schedule_id && result.schedule_id !== schedId){
+          sched.id = result.schedule_id;
+        }
+        delete sched._pending;
         renderGrid();
       })
       .withFailureHandler(function(err){
-        if (sched){
-          sched.status = oldStatus;
-          delete sched._pending;
-        }
+        // 回滾
+        Object.assign(sched, oldSnapshot);
+        delete sched._pending;
         renderGrid();
-        showToast(err.message || '切換失敗', true);
+        renderLegend();
+        showToast(err.message || '更新失敗', true);
       })
-      .updateScheduleStatus(schedId, next);
+      .updateSchedule(schedId, updates);
   }
 
   function openConfirmAllModal(){

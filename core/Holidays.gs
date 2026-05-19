@@ -202,6 +202,35 @@ function resyncLunarForYear_(year) {
   );
 }
 
+/** 為 Core Sheet 加 留職停薪紀錄 分頁 */
+function MigrateAddLeavePeriodsSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (ss.getSheetByName(SHEET_NAMES.LEAVE_PERIODS)) {
+    SpreadsheetApp.getUi().alert('留職停薪紀錄 分頁已存在');
+    return;
+  }
+  const sheet = ss.insertSheet(SHEET_NAMES.LEAVE_PERIODS);
+  const headers = [
+    COL.LEAVE_PERIODS.LEAVE_ID, COL.LEAVE_PERIODS.EMPLOYEE_ID,
+    COL.LEAVE_PERIODS.TYPE,
+    COL.LEAVE_PERIODS.START_DATE, COL.LEAVE_PERIODS.END_DATE,
+    COL.LEAVE_PERIODS.DEDUCT_TENURE,
+    COL.LEAVE_PERIODS.APPROVED_BY, COL.LEAVE_PERIODS.APPROVED_AT,
+    COL.LEAVE_PERIODS.NOTE
+  ];
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers])
+    .setFontWeight('bold').setBackground('#e8f0fe');
+  sheet.setFrozenRows(1);
+  sheet.autoResizeColumns(1, headers.length);
+  SpreadsheetApp.getUi().alert(
+    '✓ 留職停薪紀錄 分頁已建立\n\n' +
+    '欄位說明：\n' +
+    '• 類型：育嬰留停 / 一般留停 / 病假留停 / 兵役 / 其他\n' +
+    '• 復職日：空白表示尚在留停中\n' +
+    '• 扣除年資：TRUE/FALSE，影響特休年資計算'
+  );
+}
+
 /** 為已存在的 Holidays 分頁加 備註 欄位（在 農曆 和 資料來源 之間） */
 function MigrateAddNoteColumn() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();

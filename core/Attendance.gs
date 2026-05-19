@@ -80,6 +80,32 @@ function ShowAttendanceSheetUrl() {
   );
 }
 
+/** 為已存在的 Attendance Sheet 加上 請假紀錄 分頁 */
+function MigrateAddLeaveRequestsSheet() {
+  const ss = getAttendanceSpreadsheet_();
+  if (ss.getSheetByName(SHEET_NAMES.LEAVE_REQUESTS)) {
+    SpreadsheetApp.getUi().alert('請假紀錄 分頁已存在');
+    return;
+  }
+  const sheet = ss.insertSheet(SHEET_NAMES.LEAVE_REQUESTS);
+  setHeaderRow_(sheet, [
+    COL.LEAVE_REQUESTS.REQUEST_ID, COL.LEAVE_REQUESTS.EMPLOYEE_ID,
+    COL.LEAVE_REQUESTS.TYPE,
+    COL.LEAVE_REQUESTS.START_DATE, COL.LEAVE_REQUESTS.END_DATE,
+    COL.LEAVE_REQUESTS.START_TIME, COL.LEAVE_REQUESTS.END_TIME,
+    COL.LEAVE_REQUESTS.DAYS, COL.LEAVE_REQUESTS.HOURS,
+    COL.LEAVE_REQUESTS.REASON,
+    COL.LEAVE_REQUESTS.STATUS,
+    COL.LEAVE_REQUESTS.APPROVER_ID, COL.LEAVE_REQUESTS.APPROVED_AT,
+    COL.LEAVE_REQUESTS.APPROVER_COMMENT
+  ]);
+  SpreadsheetApp.getUi().alert(
+    '✓ 請假紀錄 分頁已建立\n\n' +
+    '此表記錄每次員工請假申請。\n' +
+    '完整請假流程（員工申請 → 店長簽核 → 統計入帳）將在後續迭代實作。'
+  );
+}
+
 /** 為已存在的 Attendance Sheet 加上 預設排班 分頁（一次性 migration） */
 function MigrateAddDefaultScheduleSheet() {
   const ss = getAttendanceSpreadsheet_();
@@ -129,6 +155,19 @@ function bootstrapAttendanceSheet_(ss, year) {
   setHeaderRow_(defaultSchedSheet, [
     COL.DEFAULT_SCHEDULE.STORE_ID, COL.DEFAULT_SCHEDULE.SHIFT_CODE,
     COL.DEFAULT_SCHEDULE.EMPLOYEE_ID, COL.DEFAULT_SCHEDULE.NOTE
+  ]);
+
+  const leaveReqSheet = ss.insertSheet(SHEET_NAMES.LEAVE_REQUESTS);
+  setHeaderRow_(leaveReqSheet, [
+    COL.LEAVE_REQUESTS.REQUEST_ID, COL.LEAVE_REQUESTS.EMPLOYEE_ID,
+    COL.LEAVE_REQUESTS.TYPE,
+    COL.LEAVE_REQUESTS.START_DATE, COL.LEAVE_REQUESTS.END_DATE,
+    COL.LEAVE_REQUESTS.START_TIME, COL.LEAVE_REQUESTS.END_TIME,
+    COL.LEAVE_REQUESTS.DAYS, COL.LEAVE_REQUESTS.HOURS,
+    COL.LEAVE_REQUESTS.REASON,
+    COL.LEAVE_REQUESTS.STATUS,
+    COL.LEAVE_REQUESTS.APPROVER_ID, COL.LEAVE_REQUESTS.APPROVED_AT,
+    COL.LEAVE_REQUESTS.APPROVER_COMMENT
   ]);
 
   createYearlySheets_(ss, year);
