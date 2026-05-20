@@ -94,6 +94,87 @@
     /* 一般員工：隱藏 admin 限定的功能 */
     body.is-staff .admin-only{display:none !important}
 
+    /* View mode toggle */
+    .view-toggle{
+      display:inline-flex;border:1px solid #e5e7eb;border-radius:4px;overflow:hidden;
+      margin-left:4px;
+    }
+    .view-toggle button{
+      border:none !important;border-radius:0 !important;
+      padding:6px 12px;background:#fff;color:#475569;font-size:13px;cursor:pointer;
+      border-right:1px solid #e5e7eb !important;
+    }
+    .view-toggle button:last-child{border-right:none !important}
+    .view-toggle button:hover{background:#f1f5f9}
+    .view-toggle button.active{background:#0f172a;color:#fff}
+
+    /* Day view */
+    .day-view{display:none;padding:0;background:#fff;border:1px solid #e5e7eb;border-radius:6px}
+    .day-view.show{display:block}
+    .day-store-block{border-bottom:1px solid #e5e7eb}
+    .day-store-block:last-child{border-bottom:none}
+    .day-store-name{
+      background:#f1f5f9;padding:10px 14px;font-weight:700;font-size:14px;
+      letter-spacing:.05em;
+    }
+    .day-shift-row{
+      display:flex;align-items:center;padding:10px 14px;border-top:1px solid #f1f5f9;
+      gap:12px;
+    }
+    .day-shift-row:first-of-type{border-top:none}
+    .day-shift-label{
+      width:60px;font-size:13px;color:#64748b;font-weight:500;flex-shrink:0;
+    }
+    .day-shift-tags{
+      flex:1;display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-height:28px;
+    }
+    .day-shift-tags .empty{color:#cbd5e1;font-size:12px;cursor:pointer}
+    .day-shift-tags .emp-tag{cursor:pointer}
+    .day-header{
+      display:flex;align-items:center;gap:12px;padding:10px 14px;
+      background:#0f172a;color:#fff;
+    }
+    .day-header .day-num{
+      font-size:22px;font-weight:700;
+    }
+    .day-header .day-meta{flex:1;font-size:12px;color:#cbd5e1}
+    .day-header .day-meta .red{color:#fca5a5}
+    .day-header .day-note{font-size:12px;background:#facc15;color:#713f12;padding:2px 8px;border-radius:3px;font-weight:600}
+
+    /* Week view */
+    .week-view{display:none;padding:0}
+    .week-view.show{display:block}
+    .week-view table{
+      border-collapse:collapse;background:#fff;
+      border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;
+      font-size:11px;width:100%;
+    }
+    .week-view th,.week-view td{
+      border:1px solid #f1f5f9;padding:4px;text-align:center;vertical-align:middle;
+      min-width:42px;
+    }
+    .week-view thead th{background:#f8fafc;font-weight:600;color:#475569;padding:6px 4px}
+    .week-view thead th.red{background:#fef2f2;color:#991b1b}
+    .week-view thead th.today{background:#0f172a;color:#fff}
+    .week-view .row-label{
+      background:#f1f5f9;font-weight:600;text-align:left;padding:4px 8px;
+      writing-mode:horizontal-tb;min-width:96px;
+    }
+    .week-view .shift-label{background:#f8fafc;color:#64748b;padding:4px 8px;text-align:left;min-width:60px}
+
+    /* 響應式：手機 (max-width: 768px) */
+    @media (max-width: 768px){
+      .topbar{padding:10px 12px;gap:8px;flex-wrap:wrap}
+      .topbar h1{display:none}
+      .nav{margin-left:0;flex-wrap:wrap;gap:6px;width:100%}
+      .nav button{padding:6px 8px;font-size:12px}
+      .nav .month-label{font-size:14px;min-width:auto;flex:1;text-align:center}
+      .container{padding:8px 10px}
+      .legend{padding:12px;margin-top:12px}
+      .stats-table{font-size:11px}
+      .stats-table th,.stats-table td{padding:4px 4px}
+    }
+
     /* 換班 badge */
     #swapBadge{
       display:none;background:#fff;color:#7c3aed;font-weight:700;
@@ -116,6 +197,14 @@
     }
     .swap-status.s-pending-counter{background:#fef3c7;color:#92400e}
     .swap-status.s-pending-manager{background:#dbeafe;color:#1e40af}
+    .swap-status.s-pending-leave{background:#fed7aa;color:#9a3412}
+
+    /* 請假 badge */
+    #leaveBadge{
+      display:none;background:#fff;color:#ea580c;font-weight:700;
+      padding:1px 6px;border-radius:8px;font-size:11px;margin-left:4px;
+    }
+    #leaveBadge.has-pending{display:inline}
     .swap-item .swap-detail{
       background:#f8fafc;padding:8px;border-radius:4px;
       font-size:12px;color:#475569;margin-bottom:8px;line-height:1.6;
@@ -249,18 +338,26 @@
 <div class="topbar">
   <h1>排班 · 三店月曆總覽</h1>
   <div class="nav">
-    <a href="<?!= prevUrl ?>" target="_top" class="nav-btn">‹ 上個月</a>
+    <button onclick="navStep(-1)" id="navPrev">‹ 上個月</button>
     <span class="month-label" id="monthLabel"></span>
-    <a href="<?!= nextUrl ?>" target="_top" class="nav-btn">下個月 ›</a>
-    <a href="<?!= todayUrl ?>" target="_top" class="nav-btn">今天</a>
+    <button onclick="navStep(1)" id="navNext">下個月 ›</button>
+    <button onclick="navToday()">今天</button>
+    <div class="view-toggle">
+      <button onclick="setViewMode('day')" id="vmDay">日</button>
+      <button onclick="setViewMode('week')" id="vmWeek">週</button>
+      <button onclick="setViewMode('month')" id="vmMonth" class="active">月</button>
+    </div>
     <button onclick="openBulkModal()" class="admin-only" style="background:#0f172a;color:#fff;border-color:#0f172a">📋 載入預設</button>
     <button onclick="openConfirmAllModal()" class="admin-only" style="background:#059669;color:#fff;border-color:#059669">✓ 批次確認</button>
     <button onclick="openSwapsListModal()" id="swapsBtn" style="background:#7c3aed;color:#fff;border-color:#7c3aed">🔄 換班 <span id="swapBadge"></span></button>
+    <button onclick="openLeavesListModal()" id="leavesBtn" style="background:#ea580c;color:#fff;border-color:#ea580c">🌴 請假 <span id="leaveBadge"></span></button>
   </div>
 </div>
 
 <div class="container">
   <table class="grid" id="grid"></table>
+  <div class="day-view" id="dayView"></div>
+  <div class="week-view" id="weekView"></div>
 
   <div class="legend">
     <h2>EMPLOYEES · 員工本月統計</h2>
@@ -358,6 +455,51 @@
         <button onclick="closeModal()">關閉</button>
       </div>
     </div>
+    <div id="modalLeaveCreateForm" style="display:none">
+      <div class="form-row">
+        <label>申請人</label>
+        <select id="lvEmployee"></select>
+      </div>
+      <div class="form-row">
+        <label>假別</label>
+        <select id="lvType">
+          <option value="特休">特休</option>
+          <option value="事假">事假</option>
+          <option value="病假">病假</option>
+          <option value="公假">公假</option>
+          <option value="婚假">婚假</option>
+          <option value="喪假">喪假</option>
+          <option value="產假">產假</option>
+          <option value="其他">其他</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>起始日</label>
+        <input type="date" id="lvStart" style="width:140px;flex:none">
+      </div>
+      <div class="form-row">
+        <label>結束日</label>
+        <input type="date" id="lvEnd" style="width:140px;flex:none">
+      </div>
+      <div class="form-row" style="align-items:flex-start">
+        <label style="margin-top:6px">事由</label>
+        <textarea id="lvReason" rows="2" style="flex:1;padding:6px;border:1px solid #e5e7eb;border-radius:4px;font-family:inherit;font-size:13px;resize:vertical"></textarea>
+      </div>
+      <p style="font-size:12px;color:#64748b;margin:8px 0">
+        送出後狀態為「待簽核」，店長核可後計入統計。
+      </p>
+      <div class="actions">
+        <button onclick="closeModal()">取消</button>
+        <button class="primary" onclick="submitLeaveCreate()">送出申請</button>
+      </div>
+    </div>
+    <div id="modalLeavesListForm" style="display:none">
+      <div id="leaveListContent" style="max-height:50vh;overflow-y:auto;margin-bottom:12px"></div>
+      <div class="actions" style="justify-content:space-between">
+        <button onclick="openLeaveCreateModal()" class="primary">+ 新申請</button>
+        <button onclick="closeModal()">關閉</button>
+      </div>
+    </div>
     <div id="modalConfirmAllForm" style="display:none">
       <div class="form-row">
         <label>範圍</label>
@@ -423,6 +565,38 @@
     return SID ? (url + (url.indexOf('?') >= 0 ? '&' : '?') + 'sid=' + encodeURIComponent(SID)) : url;
   }
 
+  // ===== View mode state =====
+  let viewMode = localStorage.getItem('scheduleViewMode') || 'month';
+  let viewDate = DATA.today; // 日 / 週 模式選定的日期（週模式以這日為當週起點）
+
+  function setViewMode(m){
+    viewMode = m;
+    localStorage.setItem('scheduleViewMode', m);
+    ['vmDay','vmWeek','vmMonth'].forEach(id => document.getElementById(id).classList.remove('active'));
+    document.getElementById('vm' + m.charAt(0).toUpperCase() + m.slice(1)).classList.add('active');
+    document.getElementById('navPrev').textContent = '‹ ' + (m === 'day' ? '前一天' : m === 'week' ? '上週' : '上個月');
+    document.getElementById('navNext').textContent = (m === 'day' ? '後一天' : m === 'week' ? '下週' : '下個月') + ' ›';
+    render();
+  }
+
+  function render(){
+    // Hide all
+    document.getElementById('grid').style.display = 'none';
+    document.getElementById('dayView').classList.remove('show');
+    document.getElementById('weekView').classList.remove('show');
+    renderMonthLabel();
+    if (viewMode === 'day'){
+      document.getElementById('dayView').classList.add('show');
+      renderDayView();
+    } else if (viewMode === 'week'){
+      document.getElementById('weekView').classList.add('show');
+      renderWeekView();
+    } else {
+      document.getElementById('grid').style.display = '';
+      renderGrid();
+    }
+  }
+
   function escapeHtml(s){
     return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
@@ -430,7 +604,36 @@
   function weekChar(y,m,d){return ['日','一','二','三','四','五','六'][new Date(y,m-1,d).getDay()];}
 
   function renderMonthLabel(){
-    document.getElementById('monthLabel').textContent = DATA.year + ' 年 ' + DATA.month + ' 月';
+    const el = document.getElementById('monthLabel');
+    if (viewMode === 'day'){
+      const d = new Date(viewDate);
+      el.textContent = (d.getMonth()+1) + '/' + d.getDate() + ' (' +
+        ['日','一','二','三','四','五','六'][d.getDay()] + ')';
+    } else if (viewMode === 'week'){
+      const start = weekStartOf_(viewDate);
+      const end = addDays_(start, 6);
+      el.textContent = (start.getMonth()+1) + '/' + start.getDate() + ' – ' +
+        (end.getMonth()+1) + '/' + end.getDate();
+    } else {
+      el.textContent = DATA.year + ' 年 ' + DATA.month + ' 月';
+    }
+  }
+
+  function weekStartOf_(dateStr){
+    const d = new Date(dateStr);
+    const dow = d.getDay(); // 0=日
+    d.setDate(d.getDate() - dow); // 回到當週日
+    return d;
+  }
+  function addDays_(d, n){
+    const r = new Date(d);
+    r.setDate(r.getDate() + n);
+    return r;
+  }
+  function ymd_(d){
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    return d.getFullYear() + '-' + m + '-' + day;
   }
 
   function renderGrid(){
@@ -601,6 +804,155 @@
     toastTimer = setTimeout(() => { t.className = 'save-toast'; }, 2200);
   }
 
+  function renderDayView(){
+    const el = document.getElementById('dayView');
+    const dateStr = viewDate;
+    const d = new Date(dateStr);
+    const weekName = ['日','一','二','三','四','五','六'][d.getDay()];
+    const hol = (DATA.holidays || []).find(h => h.date === dateStr);
+    const note = DATA.dayNotes[dateStr] || '';
+    const isToday = dateStr === DATA.today;
+
+    const empMap = {};
+    DATA.employees.forEach(e => empMap[e.id] = e);
+    const schedIdx = {};
+    DATA.schedules.forEach(s => {
+      if (s.date !== dateStr) return;
+      const key = s.store_id + '|' + s.shift_code;
+      (schedIdx[key] = schedIdx[key] || []).push(s);
+    });
+
+    let html = '<div class="day-header"' + (hol && hol.is_red ? ' style="background:#991b1b"' : '') + '>' +
+      '<span class="day-num">' + (d.getMonth()+1) + '/' + d.getDate() + '</span>' +
+      '<span class="day-meta">' + weekName + (isToday ? ' · 今天' : '') +
+        (hol && hol.name ? ' · <span class="red">' + escapeHtml(hol.name) + '</span>' : '') +
+      '</span>' +
+      (note ? '<span class="day-note">' + escapeHtml(note) + '</span>' : '') +
+      '</div>';
+
+    DATA.stores.forEach(store => {
+      html += '<div class="day-store-block">';
+      html += '<div class="day-store-name">' + escapeHtml(store.name) + '</div>';
+      DATA.shiftTypes.forEach(shift => {
+        const key = store.id + '|' + shift.code;
+        const sched = schedIdx[key] || [];
+        let tags = '';
+        sched.forEach(s => {
+          const emp = empMap[s.employee_id];
+          const empName = emp ? emp.name : s.employee_id;
+          const color = emp ? emp.color : '#ddd';
+          let cls = '';
+          if (s._pending) cls += ' pending';
+          else if (s.status === '草稿') cls += ' draft';
+          if (s.pay_override === 'hourly') cls += ' hourly';
+          tags += '<span class="emp-tag' + cls + '" style="background:' + color + '" ' +
+            'onclick="onDayCellClick(\''+s.id+'\')">' + escapeHtml(empName) + '</span>';
+        });
+        if (sched.length === 0){
+          tags = '<span class="empty" onclick="onDayEmptyClick(\''+dateStr+'\',\''+store.id+'\',\''+escapeHtml(store.name)+'\',\''+shift.code+'\',\''+escapeHtml(shift.name)+'\')">+ 新增</span>';
+        }
+        html += '<div class="day-shift-row">' +
+          '<span class="day-shift-label">' + escapeHtml(shift.name) + '</span>' +
+          '<span class="day-shift-tags">' + tags + '</span>' +
+          '</div>';
+      });
+      html += '</div>';
+    });
+
+    el.innerHTML = html;
+  }
+
+  function onDayCellClick(schedId){
+    const td = { dataset: { schedId: schedId } };
+    const sched = DATA.schedules.find(s => s.id === schedId);
+    if (!sched) return;
+    const storeName = (DATA.stores.find(s => s.id === sched.store_id) || {}).name || sched.store_id;
+    const shiftName = (DATA.shiftTypes.find(t => t.code === sched.shift_code) || {}).name || sched.shift_code;
+    td.dataset.storeName = storeName;
+    td.dataset.shiftName = shiftName;
+    td.dataset.date = sched.date;
+    td.dataset.store = sched.store_id;
+    td.dataset.shift = sched.shift_code;
+    td.dataset.status = sched.status || '';
+    td.classList = { contains: () => true };
+    openDeleteModal(td);
+  }
+
+  function onDayEmptyClick(dateStr, storeId, storeName, shiftCode, shiftName){
+    const td = { dataset: {
+      date: dateStr, store: storeId, storeName: storeName,
+      shift: shiftCode, shiftName: shiftName
+    }, classList: { contains: () => false } };
+    openCreateModal(td);
+  }
+
+  function renderWeekView(){
+    const el = document.getElementById('weekView');
+    const start = weekStartOf_(viewDate);
+    const days = [];
+    for (let i = 0; i < 7; i++) days.push(addDays_(start, i));
+
+    const holidayMap = {};
+    DATA.holidays.forEach(h => holidayMap[h.date] = h);
+    const empMap = {};
+    DATA.employees.forEach(e => empMap[e.id] = e);
+    const schedIdx = {};
+    DATA.schedules.forEach(s => {
+      const key = s.store_id + '|' + s.shift_code + '|' + s.date;
+      (schedIdx[key] = schedIdx[key] || []).push(s);
+    });
+
+    let html = '<table><thead><tr><th colspan="2" class="row-label">門市 / 班別</th>';
+    days.forEach(d => {
+      const ds = ymd_(d);
+      const hol = holidayMap[ds];
+      const isToday = ds === DATA.today;
+      const cls = [];
+      if (hol && hol.is_red) cls.push('red');
+      if (isToday) cls.push('today');
+      html += '<th class="' + cls.join(' ') + '">' + (d.getMonth()+1) + '/' + d.getDate() + '<br>' +
+        '<span style="font-size:9px;color:inherit">' + ['日','一','二','三','四','五','六'][d.getDay()] + '</span></th>';
+    });
+    html += '</tr></thead><tbody>';
+
+    DATA.stores.forEach((store, sIdx) => {
+      DATA.shiftTypes.forEach((shift, shIdx) => {
+        const trCls = (shIdx === 0 && sIdx > 0) ? 'store-divider' : '';
+        html += '<tr class="' + trCls + '">';
+        if (shIdx === 0){
+          html += '<td rowspan="' + DATA.shiftTypes.length + '" class="row-label" style="writing-mode:vertical-rl;text-orientation:upright;text-align:center">' +
+            escapeHtml(store.name) + '</td>';
+        }
+        html += '<td class="shift-label">' + escapeHtml(shift.name) + '</td>';
+        days.forEach(d => {
+          const ds = ymd_(d);
+          const key = store.id + '|' + shift.code + '|' + ds;
+          const sched = schedIdx[key] || [];
+          let cellHtml = '';
+          sched.forEach(s => {
+            const emp = empMap[s.employee_id];
+            const empName = emp ? emp.name : s.employee_id;
+            const color = emp ? emp.color : '#ddd';
+            let cls = '';
+            if (s._pending) cls += ' pending';
+            else if (s.status === '草稿') cls += ' draft';
+            if (s.pay_override === 'hourly') cls += ' hourly';
+            cellHtml += '<span class="emp-tag' + cls + '" style="background:' + color + ';font-size:10px;padding:2px 4px" ' +
+              'onclick="onDayCellClick(\''+s.id+'\')">' + escapeHtml(empName) + '</span>';
+          });
+          if (sched.length === 0){
+            cellHtml = '<span style="color:#cbd5e1;font-size:18px;cursor:pointer" ' +
+              'onclick="onDayEmptyClick(\''+ds+'\',\''+store.id+'\',\''+escapeHtml(store.name)+'\',\''+shift.code+'\',\''+escapeHtml(shift.name)+'\')">+</span>';
+          }
+          html += '<td>' + cellHtml + '</td>';
+        });
+        html += '</tr>';
+      });
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  }
+
   function renderLegend(){
     const tbl = document.getElementById('statsTable');
     if (DATA.employees.length === 0){
@@ -635,8 +987,8 @@
     const draftFmt = n => n === 0
       ? '<span class="zero">0</span>'
       : '<span class="draft-count">' + n + '</span>';
-    // 「—」placeholder：待請假模組上線
-    const pending = '<span class="zero" title="待請假模組上線">—</span>';
+    // 「—」placeholder：待特休配額計算
+    const pending = '<span class="zero" title="待特休配額計算">—</span>';
 
     const head = '<thead><tr>' +
       '<th></th><th>員工</th>' +
@@ -645,10 +997,13 @@
       '<th>休</th><th>事</th><th>病</th><th>其他</th><th>特</th><th>餘特</th>' +
       '</tr></thead>';
 
+    const leaveStats = DATA.leaveStats || {};
+
     const rows = DATA.employees.map(e => {
       const c = counts[e.id];
       const workedCount = Object.keys(workedDates[e.id] || {}).length;
       const rest = daysInMonth - workedCount;
+      const lv = leaveStats[e.id] || { 特: 0, 事: 0, 病: 0, 其他: 0 };
       const noShift = c.total === 0;
       return '<tr' + (noShift ? ' class="no-shift"' : '') + '>' +
         '<td><span class="swatch" style="background:' + e.color + '"></span></td>' +
@@ -660,10 +1015,10 @@
         '<td>' + z(c.confirmed) + '</td>' +
         '<td>' + draftFmt(c.draft) + '</td>' +
         '<td>' + z(rest) + '</td>' +
-        '<td>' + pending + '</td>' +
-        '<td>' + pending + '</td>' +
-        '<td>' + pending + '</td>' +
-        '<td>' + pending + '</td>' +
+        '<td>' + z(lv.事) + '</td>' +
+        '<td>' + z(lv.病) + '</td>' +
+        '<td>' + z(lv.其他) + '</td>' +
+        '<td>' + z(lv.特) + '</td>' +
         '<td>' + pending + '</td>' +
         '</tr>';
     }).join('');
@@ -671,8 +1026,66 @@
     tbl.innerHTML = head + '<tbody>' + rows + '</tbody>';
   }
 
-  // 月份導航改用 <a target="_top"> 真實連結（topbar 預先 server 算好 URL）
-  // navMonth/navToday/navigateTop 已不需要
+  // 月份 / 日 / 週切換：用 google.script.run 抓新月資料 + 本地重繪
+  function navStep(delta){
+    if (viewMode === 'day'){
+      const d = addDays_(new Date(viewDate), delta);
+      viewDate = ymd_(d);
+      maybeLoadMonth_(d.getFullYear(), d.getMonth()+1, () => render());
+    } else if (viewMode === 'week'){
+      const start = weekStartOf_(viewDate);
+      const newStart = addDays_(start, delta * 7);
+      viewDate = ymd_(newStart);
+      maybeLoadMonth_(newStart.getFullYear(), newStart.getMonth()+1, () => render());
+    } else {
+      let y = DATA.year, m = DATA.month + delta;
+      if (m < 1){m = 12; y--;}
+      if (m > 12){m = 1; y++;}
+      loadMonth(y, m);
+    }
+  }
+  function navToday(){
+    const now = new Date();
+    if (viewMode === 'day' || viewMode === 'week'){
+      viewDate = DATA.today;
+      maybeLoadMonth_(now.getFullYear(), now.getMonth()+1, () => render());
+    } else {
+      loadMonth(now.getFullYear(), now.getMonth()+1);
+    }
+  }
+  // 若新日期不在當前已載月份，重抓資料後再呼叫 cb
+  function maybeLoadMonth_(y, m, cb){
+    if (y === DATA.year && m === DATA.month) { cb(); return; }
+    showToast('載入 ' + y + '/' + m + '…');
+    google.script.run
+      .withSuccessHandler(function(newData){
+        DATA = newData;
+        renderLegend();
+        updateSwapBadge();
+        updateLeaveBadge();
+        cb();
+      })
+      .withFailureHandler(function(err){
+        showToast('載入失敗：' + (err.message || err), true);
+      })
+      .getScheduleViewData(y, m);
+  }
+  function loadMonth(y, m){
+    showToast('載入 ' + y + '/' + m + '…');
+    google.script.run
+      .withSuccessHandler(function(newData){
+        DATA = newData;
+        render();
+        renderLegend();
+        updateSwapBadge();
+        updateLeaveBadge();
+        showToast(y + ' 年 ' + m + ' 月');
+      })
+      .withFailureHandler(function(err){
+        showToast('載入失敗：' + (err.message || err), true);
+      })
+      .getScheduleViewData(y, m);
+  }
 
   // ===== 排班 modal =====
   let modalCtx = null;
@@ -1012,6 +1425,139 @@
     }
   }
 
+  // ===== 請假申請 =====
+  function openLeavesListModal(){
+    modalCtx = { mode: 'leaveList' };
+    document.getElementById('modalTitle').textContent = '請假申請列表';
+    document.getElementById('modalSub').textContent = (DATA.openLeaves || []).length + ' 筆待簽核';
+    renderLeaveList();
+    closeAllForms_();
+    document.getElementById('modalLeavesListForm').style.display = '';
+    document.getElementById('modal').classList.add('show');
+  }
+
+  function openLeaveCreateModal(){
+    modalCtx = { mode: 'leaveCreate' };
+    document.getElementById('modalTitle').textContent = '新增請假申請';
+    document.getElementById('modalSub').textContent = '';
+
+    const empSel = document.getElementById('lvEmployee');
+    if (IS_STAFF){
+      const me = CURRENT_USER;
+      empSel.innerHTML = '<option value="' + me.id + '" selected>' +
+        escapeHtml(me.name) + ' (' + me.id + ')</option>';
+      empSel.disabled = true;
+    } else {
+      empSel.innerHTML = DATA.employees.map(e =>
+        '<option value="' + e.id + '">' + escapeHtml(e.name) + ' (' + e.id + ')</option>'
+      ).join('');
+      empSel.disabled = false;
+    }
+
+    document.getElementById('lvType').value = '特休';
+    const todayStr = DATA.today;
+    document.getElementById('lvStart').value = todayStr;
+    document.getElementById('lvEnd').value = todayStr;
+    document.getElementById('lvReason').value = '';
+
+    closeAllForms_();
+    document.getElementById('modalLeaveCreateForm').style.display = '';
+    document.getElementById('modal').classList.add('show');
+  }
+
+  function closeAllForms_(){
+    ['modalCreateForm','modalDeleteForm','modalBulkForm','modalConfirmAllForm',
+     'modalSwapCreateForm','modalSwapListForm','modalLeaveCreateForm','modalLeavesListForm']
+      .forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+      });
+  }
+
+  function submitLeaveCreate(){
+    if (!modalCtx || modalCtx.mode !== 'leaveCreate') return;
+    const payload = {
+      employee_id: document.getElementById('lvEmployee').value,
+      type: document.getElementById('lvType').value,
+      start_date: document.getElementById('lvStart').value,
+      end_date: document.getElementById('lvEnd').value,
+      reason: document.getElementById('lvReason').value
+    };
+    if (!payload.employee_id || !payload.start_date || !payload.end_date){
+      showToast('請填齊員工與日期', true);
+      return;
+    }
+    closeModal();
+    showToast('送出中…');
+    google.script.run
+      .withSuccessHandler(function(){
+        refreshData('已送出請假申請（待簽核）');
+      })
+      .withFailureHandler(function(err){
+        showToast(err.message || '送出失敗', true);
+      })
+      .createLeaveRequest(payload);
+  }
+
+  function renderLeaveList(){
+    const el = document.getElementById('leaveListContent');
+    const leaves = DATA.openLeaves || [];
+    if (leaves.length === 0){
+      el.innerHTML = '<p style="text-align:center;color:#94a3b8;padding:32px">目前沒有待簽核的請假</p>';
+      return;
+    }
+    const empName = id => {
+      const e = DATA.employees.find(x => x.id === id);
+      return e ? e.name : id;
+    };
+    el.innerHTML = leaves.map(lv => {
+      const range = lv.start_date === lv.end_date
+        ? lv.start_date
+        : lv.start_date + ' ~ ' + lv.end_date;
+      const actions = IS_ADMIN
+        ? '<button onclick="actLeave(\''+lv.id+'\',\'approve\')" class="primary">核可</button>' +
+          '<button onclick="actLeave(\''+lv.id+'\',\'reject\')" class="danger">駁回</button>'
+        : '<span style="font-size:11px;color:#94a3b8">待店長簽核</span>';
+      return '<div class="swap-item">' +
+        '<div class="swap-header">' +
+          '<span><b>' + escapeHtml(empName(lv.employee_id)) + '</b> · ' +
+            '<span style="color:#ea580c;font-weight:600">' + escapeHtml(lv.type) + '</span></span>' +
+          '<span class="swap-status s-pending-leave">' + escapeHtml(lv.status) + '</span>' +
+        '</div>' +
+        '<div class="swap-detail">' +
+          '日期：' + escapeHtml(range) + ' （' + lv.days + ' 天）<br>' +
+          (lv.reason ? '事由：' + escapeHtml(lv.reason) : '<span style="color:#94a3b8">無事由</span>') +
+        '</div>' +
+        '<div class="swap-actions">' + actions + '</div>' +
+        '</div>';
+    }).join('');
+  }
+
+  function actLeave(reqId, action){
+    showToast('處理中…');
+    const r = google.script.run
+      .withSuccessHandler(function(){
+        refreshData(action === 'approve' ? '已核准' : '已駁回');
+      })
+      .withFailureHandler(function(err){
+        showToast(err.message || '失敗', true);
+      });
+    if (action === 'approve') r.approveLeave(reqId, CURRENT_USER ? CURRENT_USER.id : '');
+    else if (action === 'reject') r.rejectLeave(reqId, CURRENT_USER ? CURRENT_USER.id : '', '');
+  }
+
+  function updateLeaveBadge(){
+    const badge = document.getElementById('leaveBadge');
+    const n = (DATA.openLeaves || []).length;
+    if (n > 0){
+      badge.textContent = n;
+      badge.classList.add('has-pending');
+    } else {
+      badge.textContent = '';
+      badge.classList.remove('has-pending');
+    }
+  }
+
   function openConfirmAllModal(){
     modalCtx = { mode: 'confirmAll' };
     document.getElementById('modalTitle').textContent = '批次確認當月草稿';
@@ -1074,9 +1620,10 @@
     google.script.run
       .withSuccessHandler(function(newData){
         DATA = newData;
-        renderGrid();
+        render();
         renderLegend();
         updateSwapBadge();
+        updateLeaveBadge();
         if (onDoneToast) showToast(onDoneToast);
       })
       .withFailureHandler(function(err){
@@ -1197,10 +1744,14 @@
     if (e.key === 'Escape') closeModal();
   });
 
-  renderMonthLabel();
-  renderGrid();
+  // 套用記憶的 view mode（首次預設手機=日 / 桌機=月）
+  if (!localStorage.getItem('scheduleViewMode')){
+    viewMode = window.matchMedia('(max-width: 768px)').matches ? 'day' : 'month';
+  }
+  setViewMode(viewMode);
   renderLegend();
   updateSwapBadge();
+  updateLeaveBadge();
 </script>
 
 </body>

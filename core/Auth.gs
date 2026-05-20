@@ -257,22 +257,9 @@ function renderSchedulePage_(sid, emp, e) {
     role: emp[COL.EMPLOYEES.ROLE],
     home_store: emp[COL.EMPLOYEES.HOME_STORE]
   };
-  // 預先算好導航 URL（避免在 iframe 內做程式式跨 frame 導航）
-  tpl.prevUrl = buildScheduleNavUrl_(year, month, -1, sid);
-  tpl.nextUrl = buildScheduleNavUrl_(year, month, 1, sid);
-  tpl.todayUrl = buildScheduleNavUrl_(now.getFullYear(), now.getMonth() + 1, 0, sid);
   return tpl.evaluate()
     .setTitle('排班總覽 · ' + year + '/' + month)
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
-}
-
-function buildScheduleNavUrl_(year, month, delta, sid) {
-  let y = year, m = month + delta;
-  if (m < 1) { m = 12; y--; }
-  if (m > 12) { m = 1; y++; }
-  let url = getWebAppUrl_() + '?action=schedule&year=' + y + '&month=' + m;
-  if (sid) url += '&sid=' + encodeURIComponent(sid);
-  return url;
 }
 
 function getWebAppUrl_() {

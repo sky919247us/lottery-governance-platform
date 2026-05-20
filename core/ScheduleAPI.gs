@@ -26,7 +26,9 @@ function getScheduleViewData(year, month) {
     schedules: getSchedulesForMonth_(y, m),
     holidays: holidays,
     dayNotes: buildDayNotesForMonth_(holidays),
-    openSwaps: getOpenSwapsForYear_(y)
+    openSwaps: getOpenSwapsForYear_(y),
+    openLeaves: getOpenLeaves(),
+    leaveStats: getLeaveStatsForMonth_(y, m)
   };
 }
 
@@ -655,6 +657,205 @@ function bulkLoadDefaults(year, month, storeFilter, status) {
   } finally {
     lock.releaseLock();
   }
+}
+
+// ============================================================================
+// 請假申請流程
+// ============================================================================
+
+const LEAVE_TYPES = ['特休', '事假', '病假', '公假', '婚假', '喪假', '產假', '其他'];
+
+/** 建立請假申請 */
+function createLeaveRequest(payload) {
+  if (!payload || typeof payload !== 'object') throw new Error('payload 必填');
+  const empId = String(payload.employee_id || '').trim();
+  const type = String(payload.type || '').trim();
+  const startDate = String(payload.start_date || '').trim();
+  const endDate = String(payload.end_date || startDate).trim();
+  const reason = String(payload.reason || '').trim();
+  if (!empId) throw new Error('員工必填');
+  if (LEAVE_TYPES.indexOf(type) < 0) throw new Error('假別不正確');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) throw new Error('起始日格式錯誤');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate)) throw new Error('結束日格式錯誤');
+  if (endDate < startDate) throw new Error('結束日不能早於起始日');
+
+  const year = parseInt(startDate.substring(0, 4), 10);
+  const ass = getAttendanceSpreadsheet_();
+  const sheet = ass.getSheetByName(SHEET_NAMES.LEAVE_REQUESTS);
+  if (!sheet) throw new Error('請假紀錄 分頁不存在');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(5000);
+  try {
+    const lastCol = sheet.getLastColumn();
+    const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+
+    const requestId = 'LR-' + Utilities.formatDate(new Date(), TIMEZONE, 'yyyyMMddHHmmss') +
+                      '-' + Math.floor(Math.random() * 1000);
+    const days = leaveDays_(startDate, endDate);
+
+    const row = headers.map(function () { return ''; });
+    row[headers.indexOf(COL.LEAVE_REQUESTS.REQUEST_ID)] = requestId;
+    row[headers.indexOf(COL.LEAVE_REQUESTS.EMPLOYEE_ID)] = empId;
+    row[headers.indexOf(COL.LEAVE_REQUESTS.TYPE)] = type;
+    row[headers.indexOf(COL.LEAVE_REQUESTS.START_DATE)] = startDate;
+    row[headers.indexOf(COL.LEAVE_REQUESTS.END_DATE)] = endDate;
+    row[headers.indexOf(COL.LEAVE_REQUESTS.START_TIME)] = payload.start_time || '';
+    row[headers.indexOf(COL.LEAVE_REQUESTS.END_TIME)] = payload.end_time || '';
+    row[headers.indexOf(COL.LEAVE_REQUESTS.DAYS)] = days;
+    row[headers.indexOf(COL.LEAVE_REQUESTS.HOURS)] = '';
+    row[headers.indexOf(COL.LEAVE_REQUESTS.REASON)] = reason;
+    row[headers.indexOf(COL.LEAVE_REQUESTS.STATUS)] = '待簽核';
+
+    sheet.appendRow(row);
+    return { ok: true, request_id: requestId };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 簽核請假申請 */
+function approveLeave(requestId, approverId) {
+  return updateLeaveRow_(requestId, function (row, headers) {
+    const statusIdx = headers.indexOf(COL.LEAVE_REQUESTS.STATUS);
+    if (row[statusIdx] !== '待簽核') {
+      throw new Error('狀態為「' + row[statusIdx] + '」，無法簽核');
+    }
+    row[statusIdx] = '已核准';
+    row[headers.indexOf(COL.LEAVE_REQUESTS.APPROVER_ID)] = approverId || '';
+    row[headers.indexOf(COL.LEAVE_REQUESTS.APPROVED_AT)] = new Date();
+    return row;
+  });
+}
+
+function rejectLeave(requestId, approverId, comment) {
+  return updateLeaveRow_(requestId, function (row, headers) {
+    const statusIdx = headers.indexOf(COL.LEAVE_REQUESTS.STATUS);
+    if (row[statusIdx] === '已核准' || row[statusIdx] === '已駁回') {
+      throw new Error('狀態為「' + row[statusIdx] + '」，無法駁回');
+    }
+    row[statusIdx] = '已駁回';
+    row[headers.indexOf(COL.LEAVE_REQUESTS.APPROVER_ID)] = approverId || '';
+    row[headers.indexOf(COL.LEAVE_REQUESTS.APPROVED_AT)] = new Date();
+    if (comment) {
+      row[headers.indexOf(COL.LEAVE_REQUESTS.APPROVER_COMMENT)] = comment;
+    }
+    return row;
+  });
+}
+
+function updateLeaveRow_(requestId, mutator) {
+  if (!requestId) throw new Error('request_id 必填');
+  const ass = getAttendanceSpreadsheet_();
+  const sheet = ass.getSheetByName(SHEET_NAMES.LEAVE_REQUESTS);
+  if (!sheet) throw new Error('請假紀錄 分頁不存在');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(5000);
+  try {
+    const lastCol = sheet.getLastColumn();
+    const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    const idIdx = headers.indexOf(COL.LEAVE_REQUESTS.REQUEST_ID);
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) throw new Error('找不到此申請');
+    const ids = sheet.getRange(2, idIdx + 1, lastRow - 1, 1).getValues();
+    for (let i = 0; i < ids.length; i++) {
+      if (ids[i][0] === requestId) {
+        const rowIdx = i + 2;
+        const row = sheet.getRange(rowIdx, 1, 1, lastCol).getValues()[0];
+        const newRow = mutator(row, headers);
+        sheet.getRange(rowIdx, 1, 1, lastCol).setValues([newRow]);
+        return { ok: true };
+      }
+    }
+    throw new Error('找不到此申請：' + requestId);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function leaveDays_(startDate, endDate) {
+  const s = new Date(startDate + 'T00:00:00+08:00');
+  const e = new Date(endDate + 'T00:00:00+08:00');
+  return Math.floor((e - s) / (24 * 60 * 60 * 1000)) + 1;
+}
+
+/** 取得當前 pending 的請假申請（給簽核列表用） */
+function getOpenLeaves() {
+  const ass = getAttendanceSpreadsheet_();
+  const sheet = ass.getSheetByName(SHEET_NAMES.LEAVE_REQUESTS);
+  if (!sheet) return [];
+  const data = sheet.getDataRange().getValues();
+  if (data.length < 2) return [];
+  const headers = data[0];
+  const out = [];
+  for (let i = 1; i < data.length; i++) {
+    const status = data[i][headers.indexOf(COL.LEAVE_REQUESTS.STATUS)];
+    if (status !== '待簽核') continue;
+    const sd = data[i][headers.indexOf(COL.LEAVE_REQUESTS.START_DATE)];
+    const ed = data[i][headers.indexOf(COL.LEAVE_REQUESTS.END_DATE)];
+    out.push({
+      id: data[i][headers.indexOf(COL.LEAVE_REQUESTS.REQUEST_ID)],
+      employee_id: data[i][headers.indexOf(COL.LEAVE_REQUESTS.EMPLOYEE_ID)],
+      type: data[i][headers.indexOf(COL.LEAVE_REQUESTS.TYPE)],
+      start_date: sd instanceof Date ? Utilities.formatDate(sd, TIMEZONE, 'yyyy-MM-dd') : String(sd),
+      end_date: ed instanceof Date ? Utilities.formatDate(ed, TIMEZONE, 'yyyy-MM-dd') : String(ed),
+      days: data[i][headers.indexOf(COL.LEAVE_REQUESTS.DAYS)],
+      reason: data[i][headers.indexOf(COL.LEAVE_REQUESTS.REASON)],
+      status: status
+    });
+  }
+  return out;
+}
+
+/**
+ * 計算指定月份每員工的已核准請假統計（依假別累計天數）。
+ * 回傳：{ employee_id: { 特: N, 事: N, 病: N, 其他: N } }
+ *   - 特休 → 特
+ *   - 事假 → 事
+ *   - 病假 → 病
+ *   - 其他類別（公假/婚假/喪假/產假/其他）合併到 其他
+ */
+function getLeaveStatsForMonth_(year, month) {
+  const ass = getAttendanceSpreadsheet_();
+  const sheet = ass.getSheetByName(SHEET_NAMES.LEAVE_REQUESTS);
+  if (!sheet) return {};
+  const data = sheet.getDataRange().getValues();
+  if (data.length < 2) return {};
+  const headers = data[0];
+  const empIdx = headers.indexOf(COL.LEAVE_REQUESTS.EMPLOYEE_ID);
+  const typeIdx = headers.indexOf(COL.LEAVE_REQUESTS.TYPE);
+  const sdIdx = headers.indexOf(COL.LEAVE_REQUESTS.START_DATE);
+  const edIdx = headers.indexOf(COL.LEAVE_REQUESTS.END_DATE);
+  const statusIdx = headers.indexOf(COL.LEAVE_REQUESTS.STATUS);
+
+  const monthStart = new Date(year, month - 1, 1);
+  const monthEnd = new Date(year, month, 0);
+
+  const stats = {};
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][statusIdx] !== '已核准') continue;
+    const sdv = data[i][sdIdx];
+    const edv = data[i][edIdx];
+    const sd = sdv instanceof Date ? sdv : new Date(String(sdv) + 'T00:00:00+08:00');
+    const ed = edv instanceof Date ? edv : new Date(String(edv) + 'T00:00:00+08:00');
+    // 與本月交集
+    const overlapStart = sd < monthStart ? monthStart : sd;
+    const overlapEnd = ed > monthEnd ? monthEnd : ed;
+    if (overlapEnd < overlapStart) continue;
+    const days = Math.floor((overlapEnd - overlapStart) / (24*60*60*1000)) + 1;
+
+    const empId = data[i][empIdx];
+    const type = data[i][typeIdx];
+    let bucket;
+    if (type === '特休') bucket = '特';
+    else if (type === '事假') bucket = '事';
+    else if (type === '病假') bucket = '病';
+    else bucket = '其他';
+
+    if (!stats[empId]) stats[empId] = { 特: 0, 事: 0, 病: 0, 其他: 0 };
+    stats[empId][bucket] += days;
+  }
+  return stats;
 }
 
 // ============================================================================
